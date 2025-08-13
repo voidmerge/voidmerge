@@ -1,0 +1,95 @@
+<!doctype html>
+<html>
+  <head>
+    <title>VoidMerge Example1</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+/* -- beg reset -- */
+*{font-size:inherit;line-height:inherit;margin:0;padding:0}*,:after,:before{box-sizing:inherit}html{box-sizing:border-box;-webkit-text-size-adjust:100%}:where(h1,h2,h3,h4,h5,h6){font-weight:400;overflow-wrap:break-word}:where(p){overflow-wrap:break-word;text-wrap:pretty}:where(img,picture,video,canvas){block-size:auto;display:block;max-inline-size:100%}:where(iframe,object,embed){display:block;max-inline-size:100%;position:relative;z-index:1}:where(iframe[src*="vimeo.com"],iframe[src*="youtube.com"]){aspect-ratio:16/9;height:auto}:where(ul[role=list],ol[role=list]){list-style:none}:where(ul:not([role]),ol:not([role])){padding-inline-start:revert}:where(table){border-collapse:collapse;border-spacing:0}:where(address,cite,dfn,var){font-style:normal}:where(abbr[title]){text-decoration:underline dotted}:where(del){text-decoration-thickness:1px}:where(ins){text-decoration:none}:where(pre){white-space:pre-wrap;word-break:break-word}:where(small){font-size:smaller}:where(sub,sup){line-height:0}:where(fieldset){border:0}:where(button,input,select,textarea){font:inherit}:where(button,[type=button],[type=reset],[type=submit]){background-color:buttonface;border-radius:0;border:1px solid #000;color:currentColor}:where([type=email],[type=number],[type=password],[type=search],[type=tel],[type=text],[type=url],textarea){border:1px solid currentColor;border-radius:0}:where(select){color:currentColor}::placeholder{color:#595959;opacity:1}::file-selector-button{border:1px solid #000;border-radius:0;color:currentColor;font-family:inherit;font-size:inherit}:where([type=search]){background-color:inherit}::file-selector-button,[aria-controls],[type=button],[type=checkbox],[type=file],[type=radio],[type=reset],[type=submit],button,label,select{cursor:pointer}[aria-busy=true]{cursor:progress}[aria-disabled=true],[disabled]{cursor:not-allowed}[readonly]{cursor:text}:where(a svg,button svg){pointer-events:none}[hidden]{display:none!important}
+/* -- end reset -- */
+body {
+  font-family: monospace;
+  color: #f3f3ce;
+  background-color: #20201a;
+}
+h1 {
+  font-size: 160%;
+}
+.content {
+  font-size: 130%;
+  background-color: #3f3f32;
+  border-radius: 5px;
+  border: solid 2px #fffff0;
+  margin: 40px;
+  padding: 10px;
+}
+.inline {
+  display: inline-block;
+}
+#display {
+  height: 12em;
+  overflow-y: scroll;
+}
+#online {
+  height: 12em;
+  overflow-y: scroll;
+}
+input, button {
+  width: 10em;
+  padding: 10px;
+  background-color: #20201a;
+  color: #f3f3ce;
+}
+input:disabled,
+input[disabled],
+button:disabled,
+button[disabled] {
+  background-color: #666;
+  color: #999;
+  outline: none;
+}
+input:focus {
+  outline: 3px solid #a7ff64;
+}
+button:hover:not(:disabled) {
+  outline: 3px solid #a7ff64;
+}
+button:active {
+  background-color: #3f3f32;
+}
+.online {
+  display: inline-block;
+  color: #ffd164;
+  border: solid 3px #ffd164;
+  border-radius: 5px;
+  padding: 0.5em 1em;
+  margin: 0.5em 1em;
+  background-color: #20201a;
+}
+    </style>
+  </head>
+  <body>
+    <div class="content">
+      <h1 class="inline">VoidMerge Example1</h1>
+      Unique Ever: <pre id="uniqueEverCount" class="inline">0</pre>
+      Online: <pre id="onlineCount" class="inline">0</pre>
+    </div>
+    <div class="content">
+      <form id="statusForm" class="inline">
+        Nickname: <input type="text" value="user" id="status" />
+        <input type="submit" value="Set Nickname" id="setStatus" />
+      </form>
+      <form id="shoutForm" class="inline">
+        Shout: <input type="text" value="" id="shout" />
+        <input type="submit" value="Shout" id="sendShout" />
+      </form>
+    </div>
+    <div class="content"><pre id="display">~</pre></div>
+    <div class="content"><div id="online"></div></div>
+    <script>
+// this is stupid
+globalThis.global = globalThis;
+    </script>
+    <script src="browser.js"></script>
+  </body>
+</html>

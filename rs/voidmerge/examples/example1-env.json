@@ -1,0 +1,9 @@
+{
+  "public": {
+    "fileAsStr": "{{inc-str example1-env.json}}",
+    "b64AsStr": "{{b64-str aGVsbG8K}}"
+  },
+  "private": {
+    "ctxadminPubkeys": []
+  }
+}

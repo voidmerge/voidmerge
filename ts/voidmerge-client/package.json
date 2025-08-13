@@ -1,0 +1,31 @@
+{
+  "name": "@voidmerge/voidmerge-client",
+  "version": "0.0.1",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "doc": "typedoc",
+    "doc-open": "npm run doc && xdg-open docs/index.html",
+    "lint": "prettier . --write &&prettier . --check",
+    "build": "tsc",
+    "test": "npm run lint && npm run build && jest"
+  },
+  "dependencies": {
+    "@noble/curves": "^1.9.2",
+    "@noble/hashes": "^1.8.0",
+    "base64-js": "^1.5.1",
+    "cross-fetch": "^4.1.0",
+    "isomorphic-ws": "^5.0.0",
+    "msgpackr": "^1.11.4",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "jest": "^30.0.3",
+    "mktemp": "^2.0.1",
+    "prettier": "^3.5.3",
+    "ts-jest": "^29.4.0",
+    "typedoc": "^0.28.5",
+    "typescript": "^5.8.3"
+  }
+}

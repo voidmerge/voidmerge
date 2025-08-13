@@ -1,0 +1,11 @@
+{
+  "name": "@voidmerge/monorepo",
+  "private": true,
+  "scripts": {
+    "test": "npm test --workspaces"
+  },
+  "workspaces": [
+    "ts/voidmerge-client",
+    "ts/example1"
+  ]
+}
