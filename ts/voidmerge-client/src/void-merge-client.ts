@@ -22,7 +22,8 @@ export class VoidMergeClient {
   ) {
     this.#multiSign = multiSign;
     this.#client = new http.VmHttpClient(serverUrl, multiSign);
-    (this.#context = context), this.#client.setAppAuthData(this.#context, null);
+    this.#context = context;
+    this.#client.setAppAuthData(this.#context, null);
     this.#msgCb = null;
     this.#ws = null;
     this.#didAuth = false;
