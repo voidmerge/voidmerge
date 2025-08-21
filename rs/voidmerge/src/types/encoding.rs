@@ -43,7 +43,7 @@ pub struct AuthChalRes {
     pub nonce_sig: Vec<VmSignature>,
 
     /// Request access to the following contexts.
-    /// (<ContextHash>, <AppAuthData>).
+    /// `(<ContextHash>, <AppAuthData>)`.
     pub context_access: Vec<(Hash, Value)>,
 }
 

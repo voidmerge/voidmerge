@@ -37,6 +37,46 @@ pub trait ModuleRuntimeStore: std::fmt::Debug + 'static + Send + Sync {
 
     // -- provided -- //
 
+    /// Register a context admin token.
+    fn token_ctx_register<'a, 'b: 'a>(
+        &'a self,
+        token: Hash,
+        ctx_list: Vec<Hash>,
+    ) -> BoxFut<'a, Result<()>> {
+        Box::pin(async move {
+            let val = serde_json::to_string(
+                &ctx_list
+                    .into_iter()
+                    .map(|c| c.to_string())
+                    .collect::<Vec<_>>(),
+            )?;
+            self.set(
+                format!("tokenctx-{token}").into(),
+                Box::new(move |_| Ok(Some(val.into()))),
+            )
+            .await?;
+            Ok(())
+        })
+    }
+
+    /// List the registered context admin tokens.
+    fn token_ctx_list(&self) -> Result<Vec<(Hash, Vec<Hash>)>> {
+        let mut out = Vec::new();
+        for key in self.list() {
+            if key.starts_with("tokenctx-") {
+                let val = match self.get(&key) {
+                    None => continue,
+                    Some(v) => v,
+                };
+                let val = serde_json::from_str(&val)?;
+                let key = key.trim_start_matches("tokenctx-");
+                let key: Hash = key.parse()?;
+                out.push((key, val));
+            }
+        }
+        Ok(out)
+    }
+
     /// Register a context and related metadata.
     fn context_register<'a, 'b: 'a>(
         &'a self,

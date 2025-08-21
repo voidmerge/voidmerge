@@ -49,7 +49,7 @@ class Example1 {
 
     sign.loadEncoded(persist);
 
-    this.#vm = new VM.VoidMergeClient(sign, url);
+    this.#vm = new VM.VoidMergeClient(sign, url, CTX);
 
     this.#vm.setShortCache(new VM.VmObjSignedShortCacheLru(1024 * 16));
     this.#vm.setApiToken(VM.VmHash.parse("bobo"));
@@ -124,7 +124,12 @@ class Example1 {
   async init(): Promise<void> {
     this.print("Loading...");
 
-    await this.#vm.insert(CTX, new VM.VmObj("unique").withIdent(this.#unique));
+    await this.#vm.insert(
+      new VM.VmObj("unique")
+        // keep these for 3 days
+        .withTtlS(Date.now() / 1000 + 60 * 60 * 24 * 3)
+        .withIdent(this.#unique),
+    );
 
     await this.checkPeers();
     setInterval(() => {
@@ -140,13 +145,11 @@ class Example1 {
     await this.putOnline();
 
     const ever = await this.#vm.select(
-      CTX,
       new VM.VmSelect().withFilterByTypes(["unique"]),
     );
     this.setUniqueEverCount(ever.count);
 
     const online = await this.#vm.select(
-      CTX,
       new VM.VmSelect().withFilterByTypes(["online"]).withReturnData(true),
     );
     this.setOnlineCount(online.count);
@@ -190,14 +193,13 @@ class Example1 {
   async shout(msg: string): Promise<void> {
     const enc = new TextEncoder().encode(this.#elemStatus.value + ": " + msg);
     const online = await this.#vm.select(
-      CTX,
       new VM.VmSelect().withFilterByTypes(["online"]).withReturnIdent(true),
     );
     if (Array.isArray(online.results)) {
       for (const peer of online.results) {
         if (peer.ident) {
           try {
-            await this.#vm.send(CTX, peer.ident, enc);
+            await this.#vm.send(peer.ident, enc);
           } catch (_e) {
             /* pass */
           }
@@ -209,7 +211,6 @@ class Example1 {
   async putOnline(): Promise<void> {
     const thisPeerHash = await this.#vm.getThisPeerHash();
     await this.#vm.insert(
-      CTX,
       new VM.VmObj("online")
         .withTtlS(Date.now() / 1000 + 30)
         .withIdent(thisPeerHash)

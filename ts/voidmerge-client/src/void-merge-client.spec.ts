@@ -39,30 +39,26 @@ describe("VoidMergeClient", () => {
     const sign = new types.VmMultiSign();
     sign.addSign(new VmSignP256());
 
+    const ctx = types.VmHash.nonce();
+
     const client = new VoidMergeClient(
       sign,
       new URL(`http://127.0.0.1:${test.vm?.port()}`),
+      ctx,
     );
 
     client.setApiToken(types.VmHash.parse("bobo"));
     client.setShortCache(new types.VmObjSignedShortCacheLru(4096));
 
-    const ctx = types.VmHash.nonce();
-
     await client.insert(
-      ctx,
       new types.VmObj("syslogic")
         .withIdent(types.VmHash.parse("AAAA"))
         .withApp(LOGIC),
     );
 
-    await client.insert(
-      ctx,
-      new types.VmObj("test").withApp({ test: "apple" }),
-    );
+    await client.insert(new types.VmObj("test").withApp({ test: "apple" }));
 
     const results = await client.select(
-      ctx,
       new types.VmSelect().withFilterByTypes(["test"]).withReturnData(true),
     );
 
@@ -85,18 +81,18 @@ describe("VoidMergeClient", () => {
     const sign = new types.VmMultiSign();
     sign.addSign(new VmSignP256());
 
+    const ctx = types.VmHash.nonce();
+
     const adminClient = new VoidMergeClient(
       sign,
       new URL(`http://127.0.0.1:${test.vm?.port()}`),
+      ctx,
     );
 
     adminClient.setApiToken(types.VmHash.parse("bobo"));
     adminClient.setShortCache(new types.VmObjSignedShortCacheLru(4096));
 
-    const ctx = types.VmHash.nonce();
-
     await adminClient.insert(
-      ctx,
       new types.VmObj("syslogic")
         .withIdent(types.VmHash.parse("AAAA"))
         .withApp(LOGIC),
@@ -105,18 +101,15 @@ describe("VoidMergeClient", () => {
     const client = new VoidMergeClient(
       sign,
       new URL(`http://127.0.0.1:${test.vm?.port()}`),
+      ctx,
     );
 
     client.setShortCache(new types.VmObjSignedShortCacheLru(4096));
-    client.setAppAuthData(ctx, null);
+    client.setAppAuthData(null);
 
-    await client.insert(
-      ctx,
-      new types.VmObj("test").withApp({ test: "apple" }),
-    );
+    await client.insert(new types.VmObj("test").withApp({ test: "apple" }));
 
     const results = await client.select(
-      ctx,
       new types.VmSelect().withFilterByTypes(["test"]).withReturnData(true),
     );
 
@@ -139,9 +132,12 @@ describe("VoidMergeClient", () => {
     const sign = new types.VmMultiSign();
     sign.addSign(new VmSignP256());
 
+    const ctx = types.VmHash.nonce();
+
     const client = new VoidMergeClient(
       sign,
       new URL(`http://127.0.0.1:${test.vm?.port()}`),
+      ctx,
     );
 
     client.setApiToken(types.VmHash.parse("bobo"));
@@ -156,15 +152,13 @@ describe("VoidMergeClient", () => {
         res(new TextDecoder().decode(msg.data));
       });
 
-      client
-        .send(types.VmHash.nonce(), peerHash, new TextEncoder().encode("hello"))
-        .then(
-          () => {},
-          (err) => {
-            clearTimeout(timer);
-            rej(err);
-          },
-        );
+      client.send(peerHash, new TextEncoder().encode("hello")).then(
+        () => {},
+        (err) => {
+          clearTimeout(timer);
+          rej(err);
+        },
+      );
     });
 
     expect(res).toEqual("hello");

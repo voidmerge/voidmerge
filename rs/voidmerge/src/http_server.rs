@@ -99,6 +99,10 @@ impl HttpServer {
             .allow_origin(tower_http::cors::Any);
 
         let mut app: axum::Router<Arc<AppState>> = axum::Router::new()
+            .route(
+                "/ctx-admin/{token}/{*rest}",
+                axum::routing::get(route_ctx_admin),
+            )
             .route("/listen/{token}", axum::routing::any(route_listen))
             .route(
                 "/send/{context_hash}/{peer_hash}",
@@ -220,6 +224,33 @@ fn auth_token(headers: &axum::http::HeaderMap) -> Hash {
             }
         })
         .map_or_else(Hash::default, |h| h.parse::<Hash>().unwrap_or_default())
+}
+
+async fn route_ctx_admin(
+    axum::extract::Path((ctx_admin_token, rest)): axum::extract::Path<(
+        String,
+        String,
+    )>,
+    headers: axum::http::HeaderMap,
+    axum::extract::ConnectInfo(_addr): axum::extract::ConnectInfo<
+        std::net::SocketAddr,
+    >,
+    axum::extract::State(app_state): axum::extract::State<Arc<AppState>>,
+) -> AxumResult {
+    let sys_admin_token = auth_token(&headers);
+    let ctx_admin_token: Hash = ctx_admin_token.parse()?;
+    let mut ctx_list: Vec<Hash> = Vec::new();
+    for ctx in rest.split("/") {
+        let ctx = ctx.trim();
+        if !ctx.is_empty() {
+            ctx_list.push(ctx.parse()?);
+        }
+    }
+    app_state
+        .server
+        .ctx_admin(sys_admin_token, ctx_admin_token, ctx_list)
+        .await?;
+    Ok("Ok".into_response())
 }
 
 async fn route_listen(

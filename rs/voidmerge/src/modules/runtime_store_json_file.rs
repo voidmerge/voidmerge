@@ -84,8 +84,16 @@ impl RuntimeStoreJsonFile {
             use std::io::{Seek, Write};
             let mut lock = lock.lock().unwrap();
             let mut lock = lock.write()?;
+
+            // go to beginning
             lock.rewind()?;
+
+            // write the data
             lock.write_all(data.as_bytes())?;
+
+            // truncate if it is now shorter
+            lock.set_len(data.len() as u64)?;
+
             std::io::Result::Ok(())
         })
         .await?
