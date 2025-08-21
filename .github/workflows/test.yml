@@ -1,0 +1,40 @@
+name: Test
+
+on:
+  workflow_dispatch: {}
+  push: {}
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [
+          ubuntu-latest,
+          macos-latest,
+          windows-latest,
+        ]
+        toolchain: [
+          stable,
+        ]
+        nodever: [
+          22
+        ]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Rust Toolchain
+        run: |
+          rustup toolchain install ${{ matrix.toolchain }} --profile minimal --no-self-update
+          rustup default ${{ matrix.toolchain }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.nodever }}
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Make Test
+        run: make test

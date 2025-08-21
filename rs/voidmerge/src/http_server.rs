@@ -341,7 +341,7 @@ async fn route_status(
 ) -> AxumResult {
     let ctx: Hash = context_hash.parse()?;
     let out = app_state.server.status(ctx).await?;
-    let out = out.transform(&mut ValueTxToHuman::default()).await?;
+    let out = out.transform(&mut ValueTxToHuman).await?;
     let out =
         serde_json::to_string_pretty(&out).map_err(std::io::Error::other)?;
     Ok(axum::response::Response::builder()
