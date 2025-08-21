@@ -86,6 +86,7 @@ impl RuntimeStoreJsonFile {
             let mut lock = lock.write()?;
             lock.rewind()?;
             lock.write_all(data.as_bytes())?;
+            lock.set_len(data.len() as u64)?;
             std::io::Result::Ok(())
         })
         .await?

@@ -71,13 +71,26 @@ impl Server {
             client,
             runtime,
             logic,
-            token_tracker,
+            token_tracker: token_tracker.clone(),
             context_map: Default::default(),
             task_list,
         });
 
         for (ctx, _meta) in this.runtime.runtime_store().context_list()? {
             let _ = this.get_or_create_context(ctx).await?;
+        }
+
+        for (token, ctx_list) in
+            this.runtime.runtime_store().token_ctx_list()?
+        {
+            token_tracker.push(Token {
+                token,
+                valid: true,
+                expires: None,
+                is_sys_admin: false,
+                nonce: Default::default(),
+                access: ctx_list.into_iter().map(|c| (c, true)).collect(),
+            });
         }
 
         Ok(this)
@@ -180,6 +193,38 @@ impl Server {
             // TODO - run app authentication
             self.token_tracker.grant_ctx_access(&token, ctx);
         }
+
+        Ok(())
+    }
+
+    /// Setup a ctx admin token.
+    pub async fn ctx_admin(
+        &self,
+        sys_admin_token: Hash,
+        ctx_admin_token: Hash,
+        ctx_list: Vec<Hash>,
+    ) -> Result<()> {
+        if !self.token_tracker.is_sys_admin(&sys_admin_token) {
+            return Err(std::io::ErrorKind::PermissionDenied.into());
+        }
+
+        self.runtime
+            .runtime_store()
+            .token_ctx_register(ctx_admin_token.clone(), ctx_list.clone())
+            .await?;
+
+        for ctx in ctx_list.iter() {
+            self.get_or_create_context(ctx.clone()).await?;
+        }
+
+        self.token_tracker.push(Token {
+            token: ctx_admin_token,
+            valid: true,
+            expires: None,
+            is_sys_admin: false,
+            nonce: Default::default(),
+            access: ctx_list.into_iter().map(|c| (c, true)).collect(),
+        });
 
         Ok(())
     }
