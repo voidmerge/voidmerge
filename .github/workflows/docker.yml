@@ -7,7 +7,7 @@ on:
       - "v*"
 
 jobs:
-  docker-build-voidmerge-server:
+  docker-build-voidmerge-vm:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -27,12 +27,12 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/voidmerge/voidmerge-server
+          images: ghcr.io/voidmerge/voidmerge-vm
       - name: Build and push Docker image
         id: push
         uses: docker/build-push-action@v6
         with:
-          file: docker/voidmerge-server/Dockerfile
+          file: docker/voidmerge-vm/Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
