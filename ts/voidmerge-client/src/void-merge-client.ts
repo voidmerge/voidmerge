@@ -7,6 +7,7 @@ import * as http from "./http-client";
 export class VoidMergeClient {
   #multiSign: types.VmMultiSign;
   #client: http.VmHttpClient;
+  #context: types.VmHash;
   #msgCb: null | ((msg: types.VmMsg) => void);
   #ws: null | http.VmWebSocket;
   #didAuth: boolean;
@@ -14,9 +15,14 @@ export class VoidMergeClient {
   /**
    * Construct a new VoidMergeClient.
    */
-  constructor(multiSign: types.VmMultiSign, serverUrl: URL) {
+  constructor(
+    multiSign: types.VmMultiSign,
+    serverUrl: URL,
+    context: types.VmHash,
+  ) {
     this.#multiSign = multiSign;
     this.#client = new http.VmHttpClient(serverUrl, multiSign);
+    (this.#context = context), this.#client.setAppAuthData(this.#context, null);
     this.#msgCb = null;
     this.#ws = null;
     this.#didAuth = false;
@@ -58,8 +64,8 @@ export class VoidMergeClient {
 
   /**
    */
-  setAppAuthData(ctx: types.VmHash, app: any) {
-    this.#client.setAppAuthData(ctx, app);
+  setAppAuthData(app: any) {
+    this.#client.setAppAuthData(this.#context, app);
   }
 
   /**
@@ -86,33 +92,26 @@ export class VoidMergeClient {
   /**
    * Send a message to a remote peer.
    */
-  async send(
-    ctx: types.VmHash,
-    peerHash: types.VmHash,
-    data: Uint8Array,
-  ): Promise<void> {
+  async send(peerHash: types.VmHash, data: Uint8Array): Promise<void> {
     await this.checkAuth();
-    return await this.#client.send(ctx, peerHash, data);
+    return await this.#client.send(this.#context, peerHash, data);
   }
 
   /**
    * Insert data into a VoidMerge server instance.
    */
-  async insert(ctx: types.VmHash, insert: types.VmObj): Promise<void> {
+  async insert(insert: types.VmObj): Promise<void> {
     await this.checkAuth();
     const data = insert.sign(this.#multiSign).encode();
-    await this.#client.insert(ctx, data);
+    await this.#client.insert(this.#context, data);
   }
 
   /**
    */
-  async select(
-    ctx: types.VmHash,
-    select: types.VmSelect,
-  ): Promise<types.VmSelectResponse> {
+  async select(select: types.VmSelect): Promise<types.VmSelectResponse> {
     await this.checkAuth();
     const data = select.encode();
-    const res = await this.#client.select(ctx, data);
+    const res = await this.#client.select(this.#context, data);
     return types.VmSelectResponse.decode(res);
   }
 }
