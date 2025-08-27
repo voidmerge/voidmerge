@@ -17,7 +17,7 @@
     "lint": "prettier . --write && prettier . --check",
     "clean": "tsc --build --clean",
     "build": "tsc --build && esbuild --bundle ts/example1/src/index.ts --minify --sourcemap --outfile=ts/example1/dist/browser.js",
-    "jest": "NODE_OPTIONS=\"--experimental-vm-modules\" npx jest",
+    "jest": "node --experimental-vm-modules ./node_modules/.bin/jest",
     "test": "npm run lint && npm run build && npm run jest"
   }
 }
