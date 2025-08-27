@@ -6,6 +6,8 @@
 
 [https://voidmerge.com](https://voidmerge.com)
 
+[VoidMerge Handbook](https://voidmerge.com/book)
+
 This is the web-client library for interacting with a VoidMerge server instance.
 
 Please see the [Typescript API Docs](https://voidmerge.com/ts).

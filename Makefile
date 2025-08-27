@@ -21,4 +21,5 @@ bump:
 	sed -i 's/^\(\s*"version": "\)[^"]*"/\1$(ver)"/g' ./ts/voidmerge-client/package.json
 	sed -i 's/^\(\s*"@voidmerge\/voidmerge-client": "\)[^"]*"/\1^$(ver)"/g' ./ts/example1/package.json
 	npm install
+	cargo update
 	$(MAKE) test

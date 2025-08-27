@@ -10,6 +10,6 @@
     "start2": "vm --data-dir /tmp/vm-start2 serve-and-push-app --sysadmin-tokens bobo --default-context AAAA --admin bobo --http-addr 127.0.0.1:8282 --url http://127.0.0.1:8282 --context AAAA --env-json-file ./example1-env.json --env-append-this-pubkey --logic-utf8-single ./example1-logic.js --web-root dist/"
   },
   "dependencies": {
-    "@voidmerge/voidmerge-client": "^0.0.3"
+    "@voidmerge/voidmerge-client": "^0.0.4"
   }
 }

@@ -1,6 +1,6 @@
 {
   "name": "@voidmerge/voidmerge-client",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "license": "(MIT or Apache-2.0)",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
