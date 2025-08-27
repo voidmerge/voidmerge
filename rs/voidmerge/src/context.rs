@@ -1,3 +1,4 @@
+#![allow(clippy::collapsible_if)]
 //! VoidMerge [Context]s represent spaces for sharing data
 //! and connecting peers.
 

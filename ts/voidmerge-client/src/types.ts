@@ -1,7 +1,7 @@
-import * as b64 from "./b64";
+import * as b64 from "./b64.js";
 import { unpack } from "msgpackr/unpack";
 import { pack } from "msgpackr/pack";
-import { sha512 as sha2_512 } from "@noble/hashes/sha2";
+import { sha512 as sha2_512 } from "@noble/hashes/sha2.js";
 
 function deepEqual(a: Uint8Array, b: Uint8Array): boolean {
   if (a.byteLength != b.byteLength) {

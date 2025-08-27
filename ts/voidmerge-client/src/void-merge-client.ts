@@ -1,5 +1,5 @@
-import * as types from "./types";
-import * as http from "./http-client";
+import * as types from "./types.js";
+import * as http from "./http-client.js";
 
 /**
  * A VoidMergeClient can talk to VoidMerge servers.
