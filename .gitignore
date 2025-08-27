@@ -7,3 +7,4 @@ node_modules
 /ts/voidmerge-client/dist
 /ts/example1/dist/*
 !/ts/example1/dist/index.html
+tsconfig.tsbuildinfo

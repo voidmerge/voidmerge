@@ -13,10 +13,10 @@ VoidMerge Open Source Monorepo, containing server and commandline utilites and c
 ### 1) build and install the `vm` commandline utility
 
 ```
-cargo install --path ./rs/voidmerge
+cargo install --path ./rs/voidmerge --bin vm
 ```
 
-The typescript client libraries expect the utility to be in the path.
+The typescript test expect the utility to be in the path.
 
 ### 2) install the nodejs dependencies
 
@@ -24,10 +24,10 @@ The typescript client libraries expect the utility to be in the path.
 npm install
 ```
 
-### 3) build and test voidmerge-client
+### 3) run the test suite
 
 ```
-npm --workspace ts/voidmerge-client test
+npm test
 ```
 
 ### 4) run the example

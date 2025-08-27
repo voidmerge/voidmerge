@@ -7,7 +7,7 @@
  * @packageDocumentation
  */
 
-export * from "./types";
-export * from "./sign-p256";
-export * from "./http-client";
-export * from "./void-merge-client";
+export * from "./types.js";
+export * from "./sign-p256.js";
+export * from "./http-client.js";
+export * from "./void-merge-client.js";

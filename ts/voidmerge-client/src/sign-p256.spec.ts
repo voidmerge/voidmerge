@@ -1,4 +1,4 @@
-import { VmSignP256 } from "./sign-p256";
+import { VmSignP256 } from "./sign-p256.js";
 
 describe("sign-p256", () => {
   it("sanity", () => {

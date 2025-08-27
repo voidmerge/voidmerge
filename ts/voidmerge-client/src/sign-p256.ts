@@ -1,5 +1,5 @@
-import * as types from "./types";
-import { p256 } from "@noble/curves/nist";
+import * as types from "./types.js";
+import { p256 } from "@noble/curves/nist.js";
 
 const ALG: string = "p256";
 
@@ -12,8 +12,8 @@ export class VmSignP256 implements types.VmSign {
   }
 
   genSecret(): types.VmSignSecretKey {
-    const priv = p256.utils.randomPrivateKey();
-    return types.VmSignSecretKey.fromParts(ALG, priv);
+    const { secretKey } = p256.keygen();
+    return types.VmSignSecretKey.fromParts(ALG, secretKey);
   }
 
   genPublic(secret: types.VmSignSecretKey): types.VmSignPublicKey {
@@ -23,7 +23,7 @@ export class VmSignP256 implements types.VmSign {
 
   sign(secret: types.VmSignSecretKey, data: Uint8Array): types.VmSignature {
     const sig = p256.sign(data, secret.material(), { prehash: true });
-    return types.VmSignature.fromParts(ALG, sig.toCompactRawBytes());
+    return types.VmSignature.fromParts(ALG, sig);
   }
 
   verify(
@@ -31,7 +31,6 @@ export class VmSignP256 implements types.VmSign {
     pub: types.VmSignPublicKey,
     data: Uint8Array,
   ): boolean {
-    const vsig = p256.Signature.fromCompact(sig.material());
-    return p256.verify(vsig, data, pub.material(), { prehash: true });
+    return p256.verify(sig.material(), data, pub.material(), { prehash: true });
   }
 }

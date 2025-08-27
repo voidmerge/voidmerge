@@ -1,7 +1,7 @@
-import * as types from "./types";
-import { VmSignP256 } from "./sign-p256";
-import { VmHttpClient } from "./http-client";
-import { Vm } from "./vm-test-helper";
+import * as types from "./types.js";
+import { VmSignP256 } from "./sign-p256.js";
+import { VmHttpClient } from "./http-client.js";
+import { Vm } from "./vm-test-helper.js";
 //import { unpack } from "msgpackr/unpack";
 //import { pack } from "msgpackr/pack";
 

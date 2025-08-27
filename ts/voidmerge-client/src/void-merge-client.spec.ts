@@ -1,7 +1,7 @@
-import * as types from "./types";
-import { VmSignP256 } from "./sign-p256";
-import { Vm } from "./vm-test-helper";
-import { VoidMergeClient } from "./void-merge-client";
+import * as types from "./types.js";
+import { VmSignP256 } from "./sign-p256.js";
+import { Vm } from "./vm-test-helper.js";
+import { VoidMergeClient } from "./void-merge-client.js";
 //import { unpack } from "msgpackr/unpack";
 //import { pack } from "msgpackr/pack";
 

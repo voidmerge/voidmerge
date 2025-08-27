@@ -1,7 +1,5 @@
-import * as types from "./types";
+import * as types from "./types.js";
 import fetch from "cross-fetch";
-const ws = require("isomorphic-ws");
-const WebSocket = ws.WebSocket || ws.default || ws;
 import { unpack } from "msgpackr/unpack";
 import { pack } from "msgpackr/pack";
 
@@ -245,7 +243,7 @@ export class VmHttpClient {
         Authorization: `Bearer ${token.toString()}`,
       },
       method: "PUT",
-    });
+    } as RequestInit);
     if (res.status >= 400) {
       const msg = await res.text();
       throw new Error(`error(${res.status}): ${msg}`);
@@ -313,7 +311,7 @@ export class VmHttpClient {
           Authorization: `Bearer ${this.#token?.toString()}`,
         },
         method: "PUT",
-      });
+      } as RequestInit);
       if (res.status >= 400) {
         const msg = await res.text();
         throw new Error(`error(${res.status}): ${msg}`);
@@ -332,7 +330,7 @@ export class VmHttpClient {
           Authorization: `Bearer ${this.#token?.toString()}`,
         },
         method: "PUT",
-      });
+      } as RequestInit);
       if (res.status >= 400) {
         const msg = await res.text();
         throw new Error(`error(${res.status}): ${msg}`);
@@ -351,7 +349,7 @@ export class VmHttpClient {
           Authorization: `Bearer ${this.#token?.toString()}`,
         },
         method: "PUT",
-      });
+      } as RequestInit);
       if (res.status >= 400) {
         const msg = await res.text();
         throw new Error(`error(${res.status}): ${msg}`);
