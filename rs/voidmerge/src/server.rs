@@ -44,9 +44,10 @@ impl Server {
                     valid: true,
                     expires: None,
                     is_sys_admin: true,
+                    is_ctx_admin: true,
                     nonce: Default::default(),
                     access: Default::default(),
-                });
+                })?;
             }
         }
 
@@ -88,9 +89,10 @@ impl Server {
                 valid: true,
                 expires: None,
                 is_sys_admin: false,
+                is_ctx_admin: true,
                 nonce: Default::default(),
                 access: ctx_list.into_iter().map(|c| (c, true)).collect(),
-            });
+            })?;
         }
 
         Ok(this)
@@ -158,9 +160,10 @@ impl Server {
             valid: false,
             expires: Some(std::time::Instant::now() + CHAL_TIME),
             is_sys_admin: false,
+            is_ctx_admin: false,
             nonce: nonce.clone(),
             access: HashMap::default(),
-        });
+        })?;
 
         Ok(AuthChalReq { token, nonce })
     }
@@ -197,6 +200,66 @@ impl Server {
         Ok(())
     }
 
+    /// Configure a context.
+    pub async fn context(
+        &self,
+        ctx: Hash,
+        token: Hash,
+        config: VmContextConfig,
+    ) -> Result<()> {
+        // first check permissions
+
+        if (config.delete || config.ctx_admin_tokens.is_some())
+            && !self.token_tracker.is_sys_admin(&token)
+        {
+            return Err(std::io::ErrorKind::PermissionDenied.into());
+        }
+
+        if !config.force_insert.is_empty()
+            && !self.token_tracker.is_ctx_admin(&token, &ctx)
+        {
+            return Err(std::io::ErrorKind::PermissionDenied.into());
+        }
+
+        // if delete, do that first, and ignore everything else
+
+        if config.delete {
+            let _ = self.context_map.lock().await.remove(&ctx);
+            return Ok(());
+        }
+
+        // make sure the context exists
+
+        let context = self.get_or_create_context(ctx.clone()).await?;
+
+        // set up tokens
+
+        if let Some(token_list) = config.ctx_admin_tokens {
+            for token in token_list {
+                self.token_tracker.push(Token {
+                    token,
+                    valid: true,
+                    expires: None,
+                    is_sys_admin: false,
+                    is_ctx_admin: true,
+                    nonce: Default::default(),
+                    access: maplit::hashmap! { ctx.clone() => true },
+                })?;
+            }
+        }
+
+        // now do the force inserts
+
+        for bundle in config.force_insert {
+            // TODO - disable validation
+            context.insert(bundle).await?;
+        }
+
+        // all done : )
+
+        Ok(())
+    }
+
     /// Setup a ctx admin token.
     pub async fn ctx_admin(
         &self,
@@ -222,9 +285,10 @@ impl Server {
             valid: true,
             expires: None,
             is_sys_admin: false,
+            is_ctx_admin: true,
             nonce: Default::default(),
             access: ctx_list.into_iter().map(|c| (c, true)).collect(),
-        });
+        })?;
 
         Ok(())
     }
@@ -349,6 +413,10 @@ struct Token {
     /// If so, they are allowed to create new contexts.
     pub is_sys_admin: bool,
 
+    /// Is this a context administrator token?
+    /// If so, they are allowed to force insert without validation.
+    pub is_ctx_admin: bool,
+
     /// The nonce for a challenge-response.
     pub nonce: Hash,
 
@@ -362,8 +430,17 @@ struct TokenTracker {
 }
 
 impl TokenTracker {
-    pub fn push(&self, token: Token) {
-        self.map.lock().unwrap().insert(token.token.clone(), token);
+    pub fn push(&self, token: Token) -> Result<()> {
+        use std::collections::hash_map::Entry;
+        match self.map.lock().unwrap().entry(token.token.clone()) {
+            Entry::Occupied(_) => {
+                Err(std::io::Error::other("token already exists"))
+            }
+            Entry::Vacant(e) => {
+                e.insert(token);
+                Ok(())
+            }
+        }
     }
 
     pub fn prune(&self) {
@@ -390,6 +467,12 @@ impl TokenTracker {
 
     pub fn grant_ctx_access(&self, token: &Hash, ctx: Hash) {
         if let Some(t) = self.map.lock().unwrap().get_mut(token) {
+            // ignore this request if it is a ctx admin token
+            // otherwise they can get access to other contexts
+            if t.is_ctx_admin {
+                return;
+            }
+
             t.access.insert(ctx, true);
         }
     }
@@ -400,6 +483,29 @@ impl TokenTracker {
                 return false;
             }
             t.is_sys_admin
+        } else {
+            false
+        }
+    }
+
+    pub fn is_ctx_admin(&self, token: &Hash, ctx: &Hash) -> bool {
+        if let Some(t) = self.map.lock().unwrap().get(token) {
+            if !t.valid {
+                return false;
+            }
+
+            if t.is_sys_admin {
+                return true;
+            }
+
+            if !t.is_ctx_admin {
+                return false;
+            }
+
+            match t.access.get(ctx) {
+                Some(r) => *r,
+                None => false,
+            }
         } else {
             false
         }

@@ -100,6 +100,7 @@ impl HttpServer {
 
         let mut app: axum::Router<Arc<AppState>> = axum::Router::new()
             .route("/health", axum::routing::get(route_health))
+            .route("/context/{context_hash}", axum::routing::put(route_context))
             .route(
                 "/ctx-admin/{token}/{*rest}",
                 axum::routing::get(route_ctx_admin),
@@ -228,6 +229,25 @@ fn auth_token(headers: &axum::http::HeaderMap) -> Hash {
 }
 
 async fn route_health() -> AxumResult {
+    Ok("Ok".into_response())
+}
+
+async fn route_context(
+    axum::extract::Path(context_hash): axum::extract::Path<String>,
+    headers: axum::http::HeaderMap,
+    axum::extract::ConnectInfo(_addr): axum::extract::ConnectInfo<
+        std::net::SocketAddr,
+    >,
+    axum::extract::State(app_state): axum::extract::State<Arc<AppState>>,
+    payload: bytes::Bytes,
+) -> AxumResult {
+    let token = auth_token(&headers);
+    let ctx: Hash = context_hash.parse()?;
+
+    let config: VmContextConfig = decode(&payload)?;
+
+    app_state.server.context(token, ctx, config).await?;
+
     Ok("Ok".into_response())
 }
 
