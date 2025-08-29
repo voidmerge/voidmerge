@@ -16,6 +16,26 @@ export class Vm {
   }
 
   static async spawn(): Promise<Vm> {
+    const vm = await Vm.priv_spawn();
+
+    for (let i = 0; i < 40; ++i) {
+      const url = new URL(`http://127.0.0.1:${vm.port()}/health`);
+      const res = await fetch(url);
+      if (res.status === 200) {
+        return vm;
+      }
+
+      let id = undefined;
+      await new Promise((res, _rej) => {
+        id = setTimeout(res, 100);
+      });
+      clearTimeout(id);
+    }
+
+    throw new Error("failed to spawn vm test server");
+  }
+
+  private static async priv_spawn(): Promise<Vm> {
     const dir = await mktemp.createDir(join(tmpdir(), ".tmpXXXXXXXX"));
     if (!dir) {
       throw new Error("failed to get tempdir");

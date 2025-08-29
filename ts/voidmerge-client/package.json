@@ -7,7 +7,8 @@
   "type": "module",
   "scripts": {
     "doc": "typedoc",
-    "doc-open": "npm run doc && xdg-open docs/index.html"
+    "doc-open": "npm run doc && xdg-open docs/index.html",
+    "test": "npm test --include-workspace-root -w"
   },
   "dependencies": {
     "@noble/curves": "^2.0.0",

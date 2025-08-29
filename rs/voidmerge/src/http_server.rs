@@ -99,6 +99,7 @@ impl HttpServer {
             .allow_origin(tower_http::cors::Any);
 
         let mut app: axum::Router<Arc<AppState>> = axum::Router::new()
+            .route("/health", axum::routing::get(route_health))
             .route(
                 "/ctx-admin/{token}/{*rest}",
                 axum::routing::get(route_ctx_admin),
@@ -224,6 +225,10 @@ fn auth_token(headers: &axum::http::HeaderMap) -> Hash {
             }
         })
         .map_or_else(Hash::default, |h| h.parse::<Hash>().unwrap_or_default())
+}
+
+async fn route_health() -> AxumResult {
+    Ok("Ok".into_response())
 }
 
 async fn route_ctx_admin(
