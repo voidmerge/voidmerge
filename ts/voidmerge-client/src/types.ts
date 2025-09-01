@@ -991,3 +991,69 @@ export class VmSelect {
     return this;
   }
 }
+
+/**
+ * Construct data for configuring a context.
+ */
+export class VmContextConfig {
+  delete?: boolean;
+  ctxAdminTokens?: Array<VmHash>;
+  forceInsert?: Array<VmObjSigned>;
+
+  /**
+   */
+  encode(): Uint8Array {
+    const enc: {
+      delete?: boolean;
+      ctxAdminTokens?: Array<Uint8Array>;
+      forceInsert?: Array<Uint8Array>;
+    } = {};
+
+    if (this.delete === true) {
+      enc.delete = true;
+    }
+
+    if (Array.isArray(this.ctxAdminTokens)) {
+      enc.ctxAdminTokens = [];
+      for (const t of this.ctxAdminTokens) {
+        enc.ctxAdminTokens.push(t.data());
+      }
+    }
+
+    if (Array.isArray(this.forceInsert)) {
+      enc.forceInsert = [];
+      for (const o of this.forceInsert) {
+        enc.forceInsert.push(o.encode());
+      }
+    }
+
+    return pack(enc);
+  }
+
+  /**
+   * By default, select results do not include the type of the item.
+   * If you set returnType to true, the type will be included with the items.
+   */
+  withDelete(withDelete: boolean): VmContextConfig {
+    this.delete = withDelete;
+    return this;
+  }
+
+  /**
+   * By default, select will return items of all types.
+   * If you would like to limit this, specify a list of types to include.
+   */
+  withCtxAdminTokens(ctxAdminTokens?: Array<VmHash>): VmContextConfig {
+    this.ctxAdminTokens = ctxAdminTokens;
+    return this;
+  }
+
+  /**
+   * By default, select will return items of all types.
+   * If you would like to limit this, specify a list of types to include.
+   */
+  withForceInsert(forceInsert?: Array<VmObjSigned>): VmContextConfig {
+    this.forceInsert = forceInsert;
+    return this;
+  }
+}

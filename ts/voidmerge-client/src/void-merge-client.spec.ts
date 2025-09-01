@@ -50,6 +50,8 @@ describe("VoidMergeClient", () => {
     client.setApiToken(types.VmHash.parse("bobo"));
     client.setShortCache(new types.VmObjSignedShortCacheLru(4096));
 
+    await client.context(new types.VmContextConfig());
+
     await client.insert(
       new types.VmObj("syslogic")
         .withIdent(types.VmHash.parse("AAAA"))
@@ -91,6 +93,8 @@ describe("VoidMergeClient", () => {
 
     adminClient.setApiToken(types.VmHash.parse("bobo"));
     adminClient.setShortCache(new types.VmObjSignedShortCacheLru(4096));
+
+    await adminClient.context(new types.VmContextConfig());
 
     await adminClient.insert(
       new types.VmObj("syslogic")

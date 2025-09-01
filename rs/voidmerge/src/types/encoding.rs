@@ -63,12 +63,14 @@ pub struct VmContextConfig {
     /// - If the Vec has entries, ctxadmin tokens will be created
     ///   if they don't exist, and tokens that exist which are not in
     ///   this Vec will be deleted.
+    #[serde(default)]
     pub ctx_admin_tokens: Option<Vec<Hash>>,
 
     /// Requires sysadmin token or ctxadmin token.
     /// Inserts the provided objects without running validation on them.
     /// This can be used, for example, to set a `sysenv` and `syslogic`
     /// that are mutually dependant.
+    #[serde(default)]
     pub force_insert: Vec<Arc<VmObjSigned>>,
 }
 

@@ -321,6 +321,28 @@ export class VmHttpClient {
 
   /**
    */
+  async context(
+    ctx: types.VmHash,
+    config: types.VmContextConfig,
+  ): Promise<void> {
+    return await this.retryAuth(async () => {
+      this.#url.pathname = `/context/${ctx.toString()}`;
+      const res = await fetch(this.#url, {
+        body: config.encode(),
+        headers: {
+          Authorization: `Bearer ${this.#token?.toString()}`,
+        },
+        method: "PUT",
+      } as RequestInit);
+      if (res.status >= 400) {
+        const msg = await res.text();
+        throw new Error(`error(${res.status}): ${msg}`);
+      }
+    });
+  }
+
+  /**
+   */
   async insert(ctx: types.VmHash, data: Uint8Array): Promise<void> {
     return await this.retryAuth(async () => {
       this.#url.pathname = `/insert/${ctx.toString()}`;

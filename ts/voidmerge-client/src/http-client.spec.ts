@@ -51,6 +51,8 @@ describe("http-client", () => {
 
     const ctx = types.VmHash.nonce();
 
+    await c.context(ctx, new types.VmContextConfig());
+
     const bundle = new types.VmObj("syslogic")
       .withIdent(types.VmHash.parse("AAAA"))
       .withApp(LOGIC)
