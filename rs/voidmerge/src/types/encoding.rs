@@ -48,7 +48,7 @@ pub struct AuthChalRes {
 }
 
 /// A VoidMerge p2p context configuration.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VmContextConfig {
     /// Requires sysadmin token.

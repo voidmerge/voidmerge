@@ -203,22 +203,24 @@ impl Server {
     /// Configure a context.
     pub async fn context(
         &self,
-        ctx: Hash,
         token: Hash,
+        ctx: Hash,
         config: VmContextConfig,
     ) -> Result<()> {
         // first check permissions
 
-        if (config.delete || config.ctx_admin_tokens.is_some())
-            && !self.token_tracker.is_sys_admin(&token)
-        {
-            return Err(std::io::ErrorKind::PermissionDenied.into());
-        }
+        if !self.token_tracker.is_sys_admin(&token) {
+            if config.delete || config.ctx_admin_tokens.is_some() {
+                // must be sysadmin for these actions
+                return Err(std::io::ErrorKind::PermissionDenied.into());
+            }
 
-        if !config.force_insert.is_empty()
-            && !self.token_tracker.is_ctx_admin(&token, &ctx)
-        {
-            return Err(std::io::ErrorKind::PermissionDenied.into());
+            if !config.force_insert.is_empty()
+                && !self.token_tracker.is_ctx_admin(&token, &ctx)
+            {
+                // must be a ctx admin fore these actions
+                return Err(std::io::ErrorKind::PermissionDenied.into());
+            }
         }
 
         // if delete, do that first, and ignore everything else
@@ -256,39 +258,6 @@ impl Server {
         }
 
         // all done : )
-
-        Ok(())
-    }
-
-    /// Setup a ctx admin token.
-    pub async fn ctx_admin(
-        &self,
-        sys_admin_token: Hash,
-        ctx_admin_token: Hash,
-        ctx_list: Vec<Hash>,
-    ) -> Result<()> {
-        if !self.token_tracker.is_sys_admin(&sys_admin_token) {
-            return Err(std::io::ErrorKind::PermissionDenied.into());
-        }
-
-        self.runtime
-            .runtime_store()
-            .token_ctx_register(ctx_admin_token.clone(), ctx_list.clone())
-            .await?;
-
-        for ctx in ctx_list.iter() {
-            self.get_or_create_context(ctx.clone()).await?;
-        }
-
-        self.token_tracker.push(Token {
-            token: ctx_admin_token,
-            valid: true,
-            expires: None,
-            is_sys_admin: false,
-            is_ctx_admin: true,
-            nonce: Default::default(),
-            access: ctx_list.into_iter().map(|c| (c, true)).collect(),
-        })?;
 
         Ok(())
     }

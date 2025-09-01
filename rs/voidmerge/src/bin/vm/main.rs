@@ -34,29 +34,10 @@ impl Arg {
 
         match self.cmd {
             Cmd::PrintPublicKeys => print_public_keys().await?,
+            Cmd::Health(health_arg) => health(data_dir, health_arg).await?,
             Cmd::Serve(serve_arg) => serve(data_dir, serve_arg, ready).await,
-            Cmd::PushApp(push_app_arg) => {
-                push_app(data_dir, push_app_arg, ready).await?
-            }
-            Cmd::ServeAndPushApp(serve_and_push_app_arg) => {
-                let ServeAndPushAppArg {
-                    serve_arg,
-                    mut push_app_arg,
-                } = serve_and_push_app_arg;
-                let (ready_send, ready_recv) = tokio::sync::oneshot::channel();
-                let task = tokio::task::spawn(serve(
-                    data_dir.clone(),
-                    serve_arg,
-                    Some(ready_send),
-                ));
-                let url = ready_recv.await.map_err(|_| {
-                    std::io::Error::from(std::io::ErrorKind::BrokenPipe)
-                })?;
-                push_app_arg.url = url;
-
-                push_app(data_dir, push_app_arg, ready).await?;
-
-                task.await?;
+            Cmd::Context(context_arg) => {
+                context(data_dir, context_arg, ready).await?
             }
             Cmd::Backup(backup_arg) => backup(data_dir, backup_arg).await?,
             Cmd::Restore(restore_arg) => restore(data_dir, restore_arg).await?,
@@ -70,21 +51,28 @@ enum Cmd {
     /// Print the public keys used by this node to stderr.
     PrintPublicKeys,
 
+    /// Execute a health check against a server.
+    Health(HealthArg),
+
     /// Run the VoidMerge HTTP server.
     #[cfg(feature = "http-server")]
     Serve(ServeArg),
 
-    /// Push an application/context to a running VoidMerge HTTP server.
-    PushApp(PushAppArg),
-
-    /// Testing convenience that runs a server pushing an app to it.
-    ServeAndPushApp(ServeAndPushAppArg),
+    /// Configure the specified context.
+    Context(ContextArg),
 
     /// Backup the specified context as a canonical VoidMerge backup zipfile.
     Backup(BackupArg),
 
     /// Restore a VoidMerge backup zipfile into a given context..
     Restore(RestoreArg),
+}
+
+#[derive(Debug, clap::Args)]
+struct HealthArg {
+    /// The server url.
+    #[arg(long, env = "VM_URL")]
+    url: String,
 }
 
 #[derive(Debug, clap::Args)]
@@ -104,20 +92,30 @@ struct ServeArg {
 }
 
 #[derive(Debug, clap::Args)]
-struct PushAppArg {
+struct ContextArg {
     /// The admin api token to use. If specified, client will not use
     /// challenge authentication, and instead will always pass this
     /// api token.
     #[arg(long, env = "VM_ADMIN")]
     admin: Option<String>,
 
-    /// The server url.
-    #[arg(long, env = "VM_URL")]
-    url: String,
-
-    /// Push the app to this base64url encoded context.
+    /// The context to configure.
     #[arg(long, env = "VM_CONTEXT")]
     context: String,
+
+    /// The server url. Optional only if using --test-server.
+    #[arg(long, env = "VM_URL")]
+    url: Option<String>,
+
+    /// If true, the context will be deleted. Any additionally specified
+    /// context configuration will be ignored.
+    #[arg(long, env = "VM_CONTEXT_DELETE")]
+    delete: bool,
+
+    /// If specified, will modify the ctx_admin tokens associated with this
+    /// context.
+    #[arg(long, env = "VM_CTXADMIN_TOKENS", value_delimiter = ',')]
+    ctx_admin_tokens: Option<Vec<String>>,
 
     /// Push the given json file as a `sysenv:AAAA` entry, which will be
     /// available as the env param in logic evaluation.
@@ -148,15 +146,11 @@ struct PushAppArg {
     /// to be served at `/web/{context}/*` paths.
     #[arg(long, env = "VM_WEB_ROOT")]
     web_root: Option<std::path::PathBuf>,
-}
 
-#[derive(Debug, clap::Args)]
-struct ServeAndPushAppArg {
-    #[command(flatten)]
-    serve_arg: ServeArg,
-
-    #[command(flatten)]
-    push_app_arg: PushAppArg,
+    /// Run a new test server at the configured socket address.
+    /// (E.g. `--test-server 127.0.0.1:0`)
+    #[arg(long, env = "VM_TEST_SERVER")]
+    test_server: Option<String>,
 }
 
 #[derive(Debug, clap::Args)]
@@ -234,6 +228,24 @@ async fn print_public_keys() -> std::io::Result<()> {
     Ok(())
 }
 
+async fn health(
+    data_dir: std::path::PathBuf,
+    health_arg: HealthArg,
+) -> std::io::Result<()> {
+    // don't actually need runtime/sign for this call,
+    // but it's how the client is currently set up.
+    let config = voidmerge::config::Config {
+        data_dir,
+        ..Default::default()
+    };
+    let runtime = voidmerge::runtime::Runtime::new(Arc::new(config)).await?;
+    let client = voidmerge::http_client::HttpClient::new(
+        Default::default(),
+        runtime.sign().clone(),
+    );
+    client.health(&health_arg.url).await
+}
+
 async fn serve(
     data_dir: std::path::PathBuf,
     serve_arg: ServeArg,
@@ -281,27 +293,30 @@ async fn serve_err(
     Ok(())
 }
 
-async fn push_app(
+async fn context(
     data_dir: std::path::PathBuf,
-    push_app_arg: PushAppArg,
+    context_arg: ContextArg,
     ready: Option<tokio::sync::oneshot::Sender<String>>,
 ) -> std::io::Result<()> {
     let config = voidmerge::config::Config {
-        data_dir,
+        data_dir: data_dir.clone(),
         ..Default::default()
     };
     let runtime = voidmerge::runtime::Runtime::new(Arc::new(config)).await?;
     tracing::debug!(?runtime);
 
-    let PushAppArg {
+    let ContextArg {
         admin,
-        url,
+        mut url,
         context,
+        delete,
+        ctx_admin_tokens,
         env_json_file,
         env_append_this_pubkey,
         logic_utf8_single,
         web_root,
-    } = push_app_arg;
+        test_server,
+    } = context_arg;
 
     let context: voidmerge::types::Hash = context.parse()?;
 
@@ -314,6 +329,88 @@ async fn push_app(
         client.set_api_token(admin);
     }
 
+    if delete {
+        tracing::info!("deleting context..");
+
+        client
+            .context(
+                &url.expect("must pass in url if using delete"),
+                context.clone(),
+                voidmerge::types::VmContextConfig {
+                    delete: true,
+                    ..Default::default()
+                },
+            )
+            .await?;
+
+        // If deleting, that's all we do
+        return Ok(());
+    }
+
+    let mut test_server_task = None;
+
+    if let Some(test_server) = test_server {
+        let (s, r) = tokio::sync::oneshot::channel();
+        let sysadmin_tokens = if let Some(admin) = &admin {
+            vec![admin.clone()]
+        } else {
+            vec![]
+        };
+        let default_context = Some(context.to_string());
+
+        test_server_task = Some(tokio::task::spawn(async move {
+            serve(
+                data_dir,
+                ServeArg {
+                    sysadmin_tokens,
+                    default_context,
+                    http_addr: test_server,
+                },
+                Some(s),
+            )
+            .await
+        }));
+
+        url = Some(r.await.map_err(|_| {
+            std::io::Error::from(std::io::ErrorKind::BrokenPipe)
+        })?);
+
+        // make sure we can actually connect
+        let mut is_healthy = false;
+        for _ in 0..40 {
+            if client.health(url.as_ref().unwrap()).await.is_ok() {
+                is_healthy = true;
+                break;
+            }
+        }
+        if !is_healthy {
+            return Err(std::io::Error::other("failed to bind test-server"));
+        }
+    }
+
+    let url = url.expect("either specify a --url or --test-server");
+
+    if let Some(ctx_admin_tokens) = ctx_admin_tokens {
+        let mut tokens = Vec::with_capacity(ctx_admin_tokens.len());
+        for t in ctx_admin_tokens {
+            tokens.push(t.parse()?);
+        }
+
+        tracing::info!("configuring ctx_admin tokens..");
+
+        // configure the ctxadmin tokens
+        client
+            .context(
+                &url,
+                context.clone(),
+                voidmerge::types::VmContextConfig {
+                    ctx_admin_tokens: Some(tokens),
+                    ..Default::default()
+                },
+            )
+            .await?;
+    }
+
     let ts = std::time::SystemTime::UNIX_EPOCH
         .elapsed()
         .unwrap()
@@ -322,7 +419,7 @@ async fn push_app(
     if let Some(env_json_file) = env_json_file {
         use voidmerge::types::*;
 
-        tracing::info!("pushing sysenv from {env_json_file:?}");
+        tracing::info!("pushing sysenv from {env_json_file:?}..");
         let dir = env_json_file.parent().ok_or_else(|| {
             std::io::Error::other(
                 "could not get env_json_file containing directory",
@@ -351,13 +448,21 @@ async fn push_app(
 
         let bundle = env.sign(runtime.sign())?;
 
+        // inject the env without validation
         client
-            .insert(&url, context.clone(), voidmerge::types::encode(&bundle)?)
+            .context(
+                &url,
+                context.clone(),
+                voidmerge::types::VmContextConfig {
+                    force_insert: vec![bundle.into()],
+                    ..Default::default()
+                },
+            )
             .await?;
     }
 
     if let Some(logic_utf8_single) = logic_utf8_single {
-        tracing::info!("pushing syslogic from {logic_utf8_single:?}");
+        tracing::info!("pushing syslogic from {logic_utf8_single:?}..");
 
         let code = tokio::fs::read_to_string(logic_utf8_single).await?;
 
@@ -376,8 +481,16 @@ async fn push_app(
 
         let bundle = enc.sign(runtime.sign())?;
 
+        // inject the logic without validation
         client
-            .insert(&url, context.clone(), voidmerge::types::encode(&bundle)?)
+            .context(
+                &url,
+                context.clone(),
+                voidmerge::types::VmContextConfig {
+                    force_insert: vec![bundle.into()],
+                    ..Default::default()
+                },
+            )
             .await?;
     }
 
@@ -395,7 +508,7 @@ async fn push_app(
                 .ok_or_else(|| std::io::Error::other("invalid utf8 path"))?;
             let ident = path.as_bytes().into();
 
-            tracing::info!("pushing sysweb to {path:?} ({ident}, {mime})");
+            tracing::info!("pushing sysweb to {path:?} ({ident}, {mime})..");
 
             let mut app = voidmerge::types::Value::map_new();
             app.map_insert("ts".into(), ts.into());
@@ -412,19 +525,27 @@ async fn push_app(
 
             let bundle = enc.sign(runtime.sign())?;
 
+            // inject the web file without validation
             client
-                .insert(
+                .context(
                     &url,
                     context.clone(),
-                    voidmerge::types::encode(&bundle)?,
+                    voidmerge::types::VmContextConfig {
+                        force_insert: vec![bundle.into()],
+                        ..Default::default()
+                    },
                 )
                 .await?;
         }
     }
 
-    eprintln!("#voidmerged#push_app_complete#");
+    eprintln!("#voidmerged#context_config_complete#");
     if let Some(ready) = ready {
         let _ = ready.send(url);
+    }
+
+    if let Some(test_server_task) = test_server_task {
+        test_server_task.await?;
     }
 
     Ok(())

@@ -4,8 +4,9 @@ const CTX: voidmerge::types::Hash =
     voidmerge::types::Hash::from_static(&[0, 0, 0]);
 
 struct Test {
-    _dir: tempfile::TempDir,
     task: tokio::task::JoinHandle<()>,
+    #[allow(dead_code)]
+    pub dir: tempfile::TempDir,
     pub url: String,
     pub sign: Arc<voidmerge::types::MultiSign>,
 }
@@ -23,25 +24,10 @@ impl Test {
         let (ready_send, ready_recv) = tokio::sync::oneshot::channel();
         let task = tokio::task::spawn(async move {
             Arg {
-                cmd: Cmd::ServeAndPushApp(ServeAndPushAppArg {
-                    serve_arg: ServeArg {
-                        sysadmin_tokens: vec!["bobo".into()],
-                        default_context: Some(CTX.to_string()),
-                        http_addr: "127.0.0.1:0".into(),
-                    },
-                    push_app_arg: PushAppArg {
-                        admin: Some("bobo".into()),
-                        url: "".into(),
-                        context: CTX.to_string(),
-                        env_json_file: Some(
-                            "./examples/example1-env.json".into(),
-                        ),
-                        env_append_this_pubkey: true,
-                        logic_utf8_single: Some(
-                            "./examples/example1-logic.js".into(),
-                        ),
-                        web_root: Some("./examples".into()),
-                    },
+                cmd: Cmd::Serve(ServeArg {
+                    sysadmin_tokens: vec!["bobo".into()],
+                    default_context: Some(CTX.to_string()),
+                    http_addr: "127.0.0.1:0".into(),
                 }),
                 data_dir: Some(data_dir),
             }
@@ -64,9 +50,28 @@ impl Test {
 
         let sign = runtime.sign().clone();
 
+        Arg {
+            cmd: Cmd::Context(ContextArg {
+                admin: Some("bobo".into()),
+                url: Some(url.clone()),
+                context: CTX.to_string(),
+                delete: false,
+                ctx_admin_tokens: None,
+                env_json_file: Some("./examples/example1-env.json".into()),
+                env_append_this_pubkey: true,
+                logic_utf8_single: Some("./examples/example1-logic.js".into()),
+                web_root: Some("./examples".into()),
+                test_server: None,
+            }),
+            data_dir: Some(dir.path().into()),
+        }
+        .exec(None)
+        .await
+        .unwrap();
+
         Ok(Self {
-            _dir: dir,
             task,
+            dir,
             url,
             sign,
         })
@@ -74,7 +79,7 @@ impl Test {
 }
 
 #[tokio::test]
-async fn serve_and_push_app() -> std::io::Result<()> {
+async fn serve_and_context() -> std::io::Result<()> {
     let _ = tracing::subscriber::set_global_default(
         tracing_subscriber::FmtSubscriber::builder()
             .with_env_filter(

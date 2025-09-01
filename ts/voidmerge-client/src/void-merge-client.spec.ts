@@ -1,6 +1,6 @@
 import * as types from "./types.js";
 import { VmSignP256 } from "./sign-p256.js";
-import { Vm } from "./vm-test-helper.js";
+import { VmNodeTestServer } from "./vm-node-test-server.js";
 import { VoidMergeClient } from "./void-merge-client.js";
 //import { unpack } from "msgpackr/unpack";
 //import { pack } from "msgpackr/pack";
@@ -18,13 +18,13 @@ VM({
 };
 
 describe("VoidMergeClient", () => {
-  const test: { vm: null | Vm } = { vm: null };
+  const test: { vm: null | VmNodeTestServer } = { vm: null };
 
   beforeEach(async () => {
     if (test.vm !== null) {
       throw new Error("concurrent test problem");
     }
-    test.vm = await Vm.spawn();
+    test.vm = await VmNodeTestServer.spawn();
   });
 
   afterEach(async () => {

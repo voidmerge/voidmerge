@@ -6,8 +6,9 @@
   "types": "./dist/index.d.ts",
   "type": "module",
   "scripts": {
-    "start": "vm serve-and-push-app --sysadmin-tokens bobo --default-context AAAA --admin bobo --http-addr 127.0.0.1:8080 --url http://127.0.0.1:8080 --context AAAA --env-json-file ./example1-env.json --env-append-this-pubkey --logic-utf8-single ./example1-logic.js --web-root dist/",
-    "start2": "vm --data-dir /tmp/vm-start2 serve-and-push-app --sysadmin-tokens bobo --default-context AAAA --admin bobo --http-addr 127.0.0.1:8282 --url http://127.0.0.1:8282 --context AAAA --env-json-file ./example1-env.json --env-append-this-pubkey --logic-utf8-single ./example1-logic.js --web-root dist/"
+    "build": "npm run build --include-workspace-root -w",
+    "start": "npm run build && vm context --admin bobo --context AAAA --env-json-file ./example1-env.json --env-append-this-pubkey --logic-utf8-single ./example1-logic.js --web-root dist/ --test-server 127.0.0.1:8080",
+    "start2": "npm run build && vm --data-dir /tmp/vm-start2 context --admin bobo --context AAAA --env-json-file ./example1-env.json --env-append-this-pubkey --logic-utf8-single ./example1-logic.js --web-root dist/ --test-server 127.0.0.1:8282"
   },
   "dependencies": {
     "@voidmerge/voidmerge-client": "^0.0.4"
