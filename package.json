@@ -16,7 +16,9 @@
   "scripts": {
     "lint": "prettier . --write && prettier . --check",
     "clean": "tsc --build --clean",
-    "build": "tsc --build && esbuild --bundle ts/example1/src/index.ts --minify --sourcemap --outfile=ts/example1/dist/browser.js",
+    "build:tsc": "tsc --build",
+    "build:bundle": "esbuild --bundle ts/example1/src/index.ts --minify --sourcemap --outfile=ts/example1/dist/browser.js",
+    "build": "npm run build:tsc && npm run build:bundle",
     "jest": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js",
     "test": "npm run lint && npm run build && npm run jest"
   }

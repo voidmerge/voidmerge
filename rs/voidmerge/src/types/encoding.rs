@@ -47,6 +47,33 @@ pub struct AuthChalRes {
     pub context_access: Vec<(Hash, Value)>,
 }
 
+/// A VoidMerge p2p context configuration.
+#[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VmContextConfig {
+    /// Requires sysadmin token.
+    /// If `true`, everything else in this config will be ignored
+    /// and the context will be deleted from the server.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub delete: bool,
+
+    /// Requires sysadmin token.
+    /// - If None, no changes will be made to the context.
+    /// - If an empty Vec, all existing ctxadmin tokens will be deleted.
+    /// - If the Vec has entries, ctxadmin tokens will be created
+    ///   if they don't exist, and tokens that exist which are not in
+    ///   this Vec will be deleted.
+    #[serde(default)]
+    pub ctx_admin_tokens: Option<Vec<Hash>>,
+
+    /// Requires sysadmin token or ctxadmin token.
+    /// Inserts the provided objects without running validation on them.
+    /// This can be used, for example, to set a `sysenv` and `syslogic`
+    /// that are mutually dependant.
+    #[serde(default)]
+    pub force_insert: Vec<Arc<VmObjSigned>>,
+}
+
 /// A VoidMerge p2p message.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]

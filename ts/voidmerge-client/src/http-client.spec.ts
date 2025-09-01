@@ -1,7 +1,7 @@
 import * as types from "./types.js";
 import { VmSignP256 } from "./sign-p256.js";
 import { VmHttpClient } from "./http-client.js";
-import { Vm } from "./vm-test-helper.js";
+import { VmNodeTestServer } from "./vm-node-test-server.js";
 //import { unpack } from "msgpackr/unpack";
 //import { pack } from "msgpackr/pack";
 
@@ -18,13 +18,13 @@ VM({
 };
 
 describe("http-client", () => {
-  const test: { vm: null | Vm } = { vm: null };
+  const test: { vm: null | VmNodeTestServer } = { vm: null };
 
   beforeEach(async () => {
     if (test.vm !== null) {
       throw new Error("concurrent test problem");
     }
-    test.vm = await Vm.spawn();
+    test.vm = await VmNodeTestServer.spawn();
   });
 
   afterEach(async () => {
@@ -50,6 +50,8 @@ describe("http-client", () => {
     expect(res.token.data().byteLength).toEqual(24);
 
     const ctx = types.VmHash.nonce();
+
+    await c.context(ctx, new types.VmContextConfig());
 
     const bundle = new types.VmObj("syslogic")
       .withIdent(types.VmHash.parse("AAAA"))

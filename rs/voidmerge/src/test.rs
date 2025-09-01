@@ -24,6 +24,17 @@ impl Test {
         let server = crate::server::Server::new(runtime).await.unwrap();
 
         server
+            .context(
+                token.clone(),
+                ctx.clone(),
+                VmContextConfig {
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+
+        server
             .insert(
                 token.clone(),
                 ctx.clone(),

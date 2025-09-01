@@ -113,6 +113,63 @@ impl HttpClient {
         }
     }
 
+    /// Execute a health check at the given url.
+    pub async fn health(&self, url: &str) -> Result<()> {
+        let mut url: reqwest::Url =
+            url.parse().map_err(std::io::Error::other)?;
+        url.set_path("health");
+        let res = self
+            .client
+            .get(url)
+            .send()
+            .await
+            .map_err(std::io::Error::other)?;
+        if res.error_for_status_ref().is_err() {
+            return Err(std::io::Error::other(
+                res.text().await.map_err(std::io::Error::other)?,
+            ));
+        }
+        Ok(())
+    }
+
+    /// Execute a context configuration command.
+    pub async fn context(
+        &self,
+        url: &str,
+        ctx: Hash,
+        config: VmContextConfig,
+    ) -> Result<()> {
+        let data = encode(&config)?;
+        let mut url: reqwest::Url =
+            url.parse().map_err(std::io::Error::other)?;
+        url.set_path(&format!("context/{ctx}"));
+        self.retry_auth(url.clone(), move || {
+            let url = url.clone();
+            let data = data.clone();
+            async move {
+                let token = format!(
+                    "Bearer {}",
+                    &self.token.lock().unwrap().clone().unwrap().to_string()
+                );
+                let res = self
+                    .client
+                    .put(url)
+                    .header("Authorization", token)
+                    .body(data)
+                    .send()
+                    .await
+                    .map_err(std::io::Error::other)?;
+                if res.error_for_status_ref().is_err() {
+                    return Err(std::io::Error::other(
+                        res.text().await.map_err(std::io::Error::other)?,
+                    ));
+                }
+                Ok(())
+            }
+        })
+        .await
+    }
+
     /// Put data to a running VoidMerge server.
     pub async fn insert(
         &self,

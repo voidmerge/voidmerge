@@ -99,6 +99,13 @@ export class VoidMergeClient {
   }
 
   /**
+   */
+  async context(config: types.VmContextConfig): Promise<void> {
+    await this.checkAuth();
+    return await this.#client.context(this.#context, config);
+  }
+
+  /**
    * Insert data into a VoidMerge server instance.
    */
   async insert(insert: types.VmObj): Promise<void> {

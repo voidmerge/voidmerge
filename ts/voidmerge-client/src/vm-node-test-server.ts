@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { rm } from "node:fs/promises";
 import * as mktemp from "mktemp";
 
-export class Vm {
+export class VmNodeTestServer {
   #dir: string;
   #proc: ChildProcess;
   #port: number;
@@ -15,8 +15,8 @@ export class Vm {
     this.#port = port;
   }
 
-  static async spawn(): Promise<Vm> {
-    const vm = await Vm.priv_spawn();
+  static async spawn(): Promise<VmNodeTestServer> {
+    const vm = await VmNodeTestServer.priv_spawn();
 
     for (let i = 0; i < 40; ++i) {
       const url = new URL(`http://127.0.0.1:${vm.port()}/health`);
@@ -35,7 +35,7 @@ export class Vm {
     throw new Error("failed to spawn vm test server");
   }
 
-  private static async priv_spawn(): Promise<Vm> {
+  private static async priv_spawn(): Promise<VmNodeTestServer> {
     const dir = await mktemp.createDir(join(tmpdir(), ".tmpXXXXXXXX"));
     if (!dir) {
       throw new Error("failed to get tempdir");
@@ -63,7 +63,7 @@ export class Vm {
         }
       });
     })) as { proc: ChildProcess; port: number };
-    return new Vm(dir, proc, port);
+    return new VmNodeTestServer(dir, proc, port);
   }
 
   port(): number {

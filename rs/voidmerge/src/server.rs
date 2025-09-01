@@ -44,9 +44,10 @@ impl Server {
                     valid: true,
                     expires: None,
                     is_sys_admin: true,
+                    is_ctx_admin: true,
                     nonce: Default::default(),
                     access: Default::default(),
-                });
+                })?;
             }
         }
 
@@ -88,9 +89,10 @@ impl Server {
                 valid: true,
                 expires: None,
                 is_sys_admin: false,
+                is_ctx_admin: true,
                 nonce: Default::default(),
                 access: ctx_list.into_iter().map(|c| (c, true)).collect(),
-            });
+            })?;
         }
 
         Ok(this)
@@ -158,9 +160,10 @@ impl Server {
             valid: false,
             expires: Some(std::time::Instant::now() + CHAL_TIME),
             is_sys_admin: false,
+            is_ctx_admin: false,
             nonce: nonce.clone(),
             access: HashMap::default(),
-        });
+        })?;
 
         Ok(AuthChalReq { token, nonce })
     }
@@ -197,34 +200,63 @@ impl Server {
         Ok(())
     }
 
-    /// Setup a ctx admin token.
-    pub async fn ctx_admin(
+    /// Configure a context.
+    pub async fn context(
         &self,
-        sys_admin_token: Hash,
-        ctx_admin_token: Hash,
-        ctx_list: Vec<Hash>,
+        token: Hash,
+        ctx: Hash,
+        config: VmContextConfig,
     ) -> Result<()> {
-        if !self.token_tracker.is_sys_admin(&sys_admin_token) {
-            return Err(std::io::ErrorKind::PermissionDenied.into());
+        // first check permissions
+
+        if !self.token_tracker.is_sys_admin(&token) {
+            if config.delete || config.ctx_admin_tokens.is_some() {
+                // must be sysadmin for these actions
+                return Err(std::io::ErrorKind::PermissionDenied.into());
+            }
+
+            if !config.force_insert.is_empty()
+                && !self.token_tracker.is_ctx_admin(&token, &ctx)
+            {
+                // must be a ctx admin fore these actions
+                return Err(std::io::ErrorKind::PermissionDenied.into());
+            }
         }
 
-        self.runtime
-            .runtime_store()
-            .token_ctx_register(ctx_admin_token.clone(), ctx_list.clone())
-            .await?;
+        // if delete, do that first, and ignore everything else
 
-        for ctx in ctx_list.iter() {
-            self.get_or_create_context(ctx.clone()).await?;
+        if config.delete {
+            let _ = self.context_map.lock().await.remove(&ctx);
+            return Ok(());
         }
 
-        self.token_tracker.push(Token {
-            token: ctx_admin_token,
-            valid: true,
-            expires: None,
-            is_sys_admin: false,
-            nonce: Default::default(),
-            access: ctx_list.into_iter().map(|c| (c, true)).collect(),
-        });
+        // make sure the context exists
+
+        let context = self.get_or_create_context(ctx.clone()).await?;
+
+        // set up tokens
+
+        if let Some(token_list) = config.ctx_admin_tokens {
+            for token in token_list {
+                self.token_tracker.push(Token {
+                    token,
+                    valid: true,
+                    expires: None,
+                    is_sys_admin: false,
+                    is_ctx_admin: true,
+                    nonce: Default::default(),
+                    access: maplit::hashmap! { ctx.clone() => true },
+                })?;
+            }
+        }
+
+        // now do the force inserts
+
+        for bundle in config.force_insert {
+            context.insert_unvalidated(bundle).await?;
+        }
+
+        // all done : )
 
         Ok(())
     }
@@ -272,13 +304,7 @@ impl Server {
             return Err(std::io::ErrorKind::PermissionDenied.into());
         }
 
-        let context = if self.token_tracker.is_sys_admin(&token) {
-            self.get_or_create_context(ctx.clone()).await?
-        } else {
-            self.get_context(&ctx).await?
-        };
-
-        context.insert(bundle).await?;
+        self.get_context(&ctx).await?.insert(bundle).await?;
 
         Ok(())
     }
@@ -349,6 +375,10 @@ struct Token {
     /// If so, they are allowed to create new contexts.
     pub is_sys_admin: bool,
 
+    /// Is this a context administrator token?
+    /// If so, they are allowed to force insert without validation.
+    pub is_ctx_admin: bool,
+
     /// The nonce for a challenge-response.
     pub nonce: Hash,
 
@@ -362,8 +392,17 @@ struct TokenTracker {
 }
 
 impl TokenTracker {
-    pub fn push(&self, token: Token) {
-        self.map.lock().unwrap().insert(token.token.clone(), token);
+    pub fn push(&self, token: Token) -> Result<()> {
+        use std::collections::hash_map::Entry;
+        match self.map.lock().unwrap().entry(token.token.clone()) {
+            Entry::Occupied(_) => {
+                Err(std::io::Error::other("token already exists"))
+            }
+            Entry::Vacant(e) => {
+                e.insert(token);
+                Ok(())
+            }
+        }
     }
 
     pub fn prune(&self) {
@@ -390,6 +429,12 @@ impl TokenTracker {
 
     pub fn grant_ctx_access(&self, token: &Hash, ctx: Hash) {
         if let Some(t) = self.map.lock().unwrap().get_mut(token) {
+            // ignore this request if it is a ctx admin token
+            // otherwise they can get access to other contexts
+            if t.is_ctx_admin {
+                return;
+            }
+
             t.access.insert(ctx, true);
         }
     }
@@ -400,6 +445,29 @@ impl TokenTracker {
                 return false;
             }
             t.is_sys_admin
+        } else {
+            false
+        }
+    }
+
+    pub fn is_ctx_admin(&self, token: &Hash, ctx: &Hash) -> bool {
+        if let Some(t) = self.map.lock().unwrap().get(token) {
+            if !t.valid {
+                return false;
+            }
+
+            if t.is_sys_admin {
+                return true;
+            }
+
+            if !t.is_ctx_admin {
+                return false;
+            }
+
+            match t.access.get(ctx) {
+                Some(r) => *r,
+                None => false,
+            }
         } else {
             false
         }
