@@ -237,7 +237,70 @@ impl Context {
         Ok(out)
     }
 
-    /// Insert encoded+signed data into this VoidMerge context.
+    async fn insert_private(
+        &self,
+        prev: Option<Arc<VmObjSigned>>,
+        next: Arc<VmObjSigned>,
+    ) -> Result<()> {
+        // put the data in the context store
+        let type_ = next.type_.clone();
+
+        self.context_store
+            .insert(prev, next.clone())
+            .await
+            .map_err(|e| {
+                e.with_info(format!(
+                    "inserting a {type_} type entry into the store"
+                ))
+            })?;
+
+        if &*type_ == "syslogic" {
+            // if the store succeeded, and it was a syslogic type,
+            // actually start using the new logic
+            if let Some(dec_logic) = &next.app {
+                let dec_logic = decode(&encode(dec_logic)?)?;
+                *self.app_logic.lock().unwrap() = dec_logic;
+            }
+        } else if &*type_ == "sysenv" {
+            // if the store succeeded, and it was a sysenv type,
+            // actually start using the new env data
+            let env: VmEnv = match &next.app {
+                None => Default::default(),
+                Some(app) => decode(&encode(app)?)?,
+            };
+            *self.app_env.lock().unwrap() = env;
+        }
+
+        Ok(())
+    }
+
+    /// Insert unvalidated data into this VoidMerge context.
+    /// Only admins should be allowed to call this function.
+    pub async fn insert_unvalidated(
+        &self,
+        next: Arc<VmObjSigned>,
+    ) -> Result<()> {
+        let prev = self
+            .context_store
+            .select(VmSelect {
+                filter_by_types: Some(vec![next.type_.clone()]),
+                filter_by_idents: Some(vec![next.canon_ident()]),
+                return_data: Some(true),
+                ..Default::default()
+            })
+            .await
+            .map_err(|e| {
+                e.with_info("checking existing type/ident entry".into())
+            })?
+            .results
+            .into_iter()
+            .next()
+            .and_then(|r| r.data);
+
+        self.insert_private(prev, next).await
+    }
+
+    /// Validate and Insert encoded+signed data into this VoidMerge context.
     pub async fn insert(&self, dec: Arc<VmObjSigned>) -> Result<()> {
         let cur = self
             .context_store
@@ -360,33 +423,7 @@ impl Context {
             }
         }
 
-        // put the data in the context store
-        let type_ = dec.type_.clone();
-        self.context_store
-            .insert(cur, dec.clone())
-            .await
-            .map_err(|e| {
-                e.with_info(format!(
-                    "inserting a {type_} type entry into the store"
-                ))
-            })?;
-
-        // if the store succeeded, and it was a syslogic type,
-        // actually start using the new logic
-        if &*type_ == "syslogic" {
-            if let Some(dec_logic) = &dec.app {
-                let dec_logic = decode(&encode(dec_logic)?)?;
-                *self.app_logic.lock().unwrap() = dec_logic;
-            }
-        } else if &*type_ == "sysenv" {
-            let env: VmEnv = match &dec.app {
-                None => Default::default(),
-                Some(app) => decode(&encode(app)?)?,
-            };
-            *self.app_env.lock().unwrap() = env;
-        }
-
-        Ok(())
+        self.insert_private(cur, dec).await
     }
 
     /// Select (query) data from the context.

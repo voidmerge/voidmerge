@@ -253,8 +253,7 @@ impl Server {
         // now do the force inserts
 
         for bundle in config.force_insert {
-            // TODO - disable validation
-            context.insert(bundle).await?;
+            context.insert_unvalidated(bundle).await?;
         }
 
         // all done : )
@@ -305,13 +304,7 @@ impl Server {
             return Err(std::io::ErrorKind::PermissionDenied.into());
         }
 
-        let context = if self.token_tracker.is_sys_admin(&token) {
-            self.get_or_create_context(ctx.clone()).await?
-        } else {
-            self.get_context(&ctx).await?
-        };
-
-        context.insert(bundle).await?;
+        self.get_context(&ctx).await?.insert(bundle).await?;
 
         Ok(())
     }
