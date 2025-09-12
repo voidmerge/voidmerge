@@ -23,6 +23,7 @@ futures = { workspace = true }
 maplit = { workspace = true }
 mime_guess = { workspace = true, optional = true }
 num_cpus = { workspace = true }
+oqs = { workspace = true, default-features = false, features = [ "std", "ml_dsa" ], optional = true }
 p256 = { workspace = true, optional = true }
 rand = { workspace = true }
 reqwest = { workspace = true }
@@ -43,7 +44,7 @@ zip = { workspace = true, optional = true }
 tempfile = { workspace = true }
 
 [features]
-default = [ "http-server", "vm", "v8", "p256" ]
+default = [ "http-server", "vm", "v8", "p256", "ml_dsa" ]
 
 # The http server types.
 http-server = [ "vm", "dep:axum", "dep:axum-server" ]
@@ -56,6 +57,9 @@ v8 = [ "dep:v8", "dep:serde_v8" ]
 
 # Build and include the p256 signing module.
 p256 = [ "dep:p256" ]
+
+# Build and include the ml dsa signing modules.
+ml_dsa = [ "dep:oqs" ]
 
 [package.metadata.docs.rs]
 all-features = true
