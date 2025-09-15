@@ -26,7 +26,7 @@ impl std::ops::Deref for CryptoSignSecret {
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
-        &(&*self.0).0
+        &(self.0).0
     }
 }
 
@@ -63,6 +63,78 @@ pub trait CryptoSign: std::fmt::Debug + 'static + Send + Sync {
 /// Dyn type [CryptoSign].
 pub type DynCryptoSign = Arc<dyn CryptoSign + 'static + Send + Sync>;
 
+struct Digest<'lt>(&'lt [u8]);
+
+impl<'lt> digest::crypto_common::OutputSizeUser for Digest<'lt> {
+    type OutputSize = digest::typenum::U64;
+}
+
+impl<'lt> digest::Digest for Digest<'lt> {
+    fn new() -> Self {
+        unimplemented!()
+    }
+
+    fn new_with_prefix(_data: impl AsRef<[u8]>) -> Self {
+        unimplemented!()
+    }
+
+    fn update(&mut self, _data: impl AsRef<[u8]>) {
+        unimplemented!()
+    }
+
+    fn chain_update(self, _data: impl AsRef<[u8]>) -> Self {
+        unimplemented!()
+    }
+
+    fn finalize(
+        self,
+    ) -> digest::generic_array::GenericArray<u8, Self::OutputSize> {
+        digest::generic_array::GenericArray::clone_from_slice(self.0)
+    }
+
+    fn finalize_into(
+        self,
+        _out: &mut digest::generic_array::GenericArray<u8, Self::OutputSize>,
+    ) {
+        unimplemented!()
+    }
+
+    fn finalize_reset(
+        &mut self,
+    ) -> digest::generic_array::GenericArray<u8, Self::OutputSize>
+    where
+        Self: digest::FixedOutputReset,
+    {
+        unimplemented!()
+    }
+
+    fn finalize_into_reset(
+        &mut self,
+        _out: &mut digest::generic_array::GenericArray<u8, Self::OutputSize>,
+    ) where
+        Self: digest::FixedOutputReset,
+    {
+        unimplemented!()
+    }
+
+    fn reset(&mut self)
+    where
+        Self: digest::Reset,
+    {
+        unimplemented!()
+    }
+
+    fn output_size() -> usize {
+        unimplemented!()
+    }
+
+    fn digest(
+        _data: impl AsRef<[u8]>,
+    ) -> digest::generic_array::GenericArray<u8, Self::OutputSize> {
+        unimplemented!()
+    }
+}
+
 #[cfg(feature = "ml_dsa")]
 mod ml_dsa;
 
@@ -74,3 +146,9 @@ mod p256;
 
 #[cfg(feature = "p256")]
 pub use p256::*;
+
+#[cfg(feature = "ed25519")]
+mod ed25519;
+
+#[cfg(feature = "ed25519")]
+pub use ed25519::*;

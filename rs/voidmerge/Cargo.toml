@@ -18,6 +18,8 @@ axum-server = { workspace = true, optional = true }
 base64 = { workspace = true }
 bytes = { workspace = true, features = [ "serde" ] }
 clap = { workspace = true, features = [ "derive", "env", "wrap_help" ], optional = true }
+digest = { workspace = true }
+ed25519-dalek = { workspace = true, features = [ "digest", "rand_core" ], optional = true }
 fd-lock = { workspace = true }
 futures = { workspace = true }
 maplit = { workspace = true }
@@ -44,7 +46,7 @@ zip = { workspace = true, optional = true }
 tempfile = { workspace = true }
 
 [features]
-default = [ "http-server", "vm", "v8", "p256", "ml_dsa" ]
+default = [ "http-server", "vm", "v8", "p256", "ml_dsa", "ed25519" ]
 
 # The http server types.
 http-server = [ "vm", "dep:axum", "dep:axum-server" ]
@@ -60,6 +62,9 @@ p256 = [ "dep:p256" ]
 
 # Build and include the ml dsa signing modules.
 ml_dsa = [ "dep:oqs" ]
+
+# Build and include the ed25519 signing module.
+ed25519 = [ "dep:ed25519-dalek" ]
 
 [package.metadata.docs.rs]
 all-features = true

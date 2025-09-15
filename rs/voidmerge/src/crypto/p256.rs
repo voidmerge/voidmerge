@@ -37,7 +37,7 @@ impl CryptoSign for CryptoSignP256 {
         sk: &CryptoSignSecret,
         hash: &[u8],
     ) -> Result<CryptoSignature> {
-        use ::p256::ecdsa::signature::*;
+        use ::p256::ecdsa::signature::hazmat::PrehashSigner;
 
         if hash.len() != 64 {
             return Err(std::io::Error::other(
@@ -45,9 +45,11 @@ impl CryptoSign for CryptoSignP256 {
             ));
         }
 
-        let secret = ::p256::ecdsa::SigningKey::from_slice(&sk).unwrap();
+        let secret = ::p256::ecdsa::SigningKey::from_slice(sk)
+            .map_err(std::io::Error::other)?;
 
-        let sig: ::p256::ecdsa::Signature = secret.sign(hash);
+        let sig: ::p256::ecdsa::Signature =
+            secret.sign_prehash(hash).map_err(std::io::Error::other)?;
 
         Ok(bytes::Bytes::from(sig.to_vec()).into())
     }
@@ -58,7 +60,7 @@ impl CryptoSign for CryptoSignP256 {
         signature: &CryptoSignature,
         hash: &[u8],
     ) -> Result<()> {
-        use ::p256::ecdsa::signature::*;
+        use ::p256::ecdsa::signature::hazmat::PrehashVerifier;
 
         if hash.len() != 64 {
             return Err(std::io::Error::other(
@@ -67,14 +69,15 @@ impl CryptoSign for CryptoSignP256 {
         }
 
         let pk = ::p256::ecdsa::VerifyingKey::from_encoded_point(
-            &(&pk[..]).try_into().unwrap(),
+            &(&pk[..]).try_into().map_err(std::io::Error::other)?,
         )
-        .unwrap();
+        .map_err(std::io::Error::other)?;
 
-        let signature =
-            ::p256::ecdsa::Signature::from_slice(&signature).unwrap();
+        let signature = ::p256::ecdsa::Signature::from_slice(signature)
+            .map_err(std::io::Error::other)?;
 
-        pk.verify(hash, &signature).map_err(std::io::Error::other)
+        pk.verify_prehash(hash, &signature)
+            .map_err(std::io::Error::other)
     }
 }
 
