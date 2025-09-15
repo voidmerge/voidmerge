@@ -2,8 +2,15 @@ use super::*;
 use crate::types::*;
 
 macro_rules! mk_sign {
-    ($a:literal, $d:literal, $i:ident, $t:path) => {
-        #[doc = $d]
+    ($a:literal, $i:ident, $t:path) => {
+        #[doc = concat!(
+            "Signing module implementing the ",
+            $a,
+            r#" algorithm.
+
+Note: This ml-dsa module does not respect the prehashed trait hints,
+      and instead uses the prehashed bytes as normal siging data input."#,
+        )]
         pub struct $i(oqs::sig::Sig);
 
         impl std::fmt::Debug for $i {
@@ -122,26 +129,11 @@ macro_rules! mk_sign {
     };
 }
 
-mk_sign!(
-    "ml-dsa-44",
-    "Signing module implementing the ml-dsa-44 algorithm.",
-    CryptoSignMlDsa44,
-    oqs::sig::Algorithm::MlDsa44
-);
+mk_sign!("ml-dsa-44", CryptoSignMlDsa44, oqs::sig::Algorithm::MlDsa44);
 
-mk_sign!(
-    "ml-dsa-65",
-    "Signing module implementing the ml-dsa-65 algorithm.",
-    CryptoSignMlDsa65,
-    oqs::sig::Algorithm::MlDsa65
-);
+mk_sign!("ml-dsa-65", CryptoSignMlDsa65, oqs::sig::Algorithm::MlDsa65);
 
-mk_sign!(
-    "ml-dsa-87",
-    "Signing module implementing the ml-dsa-87 algorithm.",
-    CryptoSignMlDsa87,
-    oqs::sig::Algorithm::MlDsa87
-);
+mk_sign!("ml-dsa-87", CryptoSignMlDsa87, oqs::sig::Algorithm::MlDsa87);
 
 #[cfg(test)]
 mod test {

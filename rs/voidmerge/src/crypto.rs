@@ -135,12 +135,6 @@ impl<'lt> digest::Digest for Digest<'lt> {
     }
 }
 
-#[cfg(feature = "ml_dsa")]
-mod ml_dsa;
-
-#[cfg(feature = "ml_dsa")]
-pub use ml_dsa::*;
-
 #[cfg(feature = "p256")]
 mod p256;
 
@@ -152,3 +146,12 @@ mod ed25519;
 
 #[cfg(feature = "ed25519")]
 pub use ed25519::*;
+
+#[cfg(feature = "ml_dsa")]
+mod ml_dsa;
+
+#[cfg(feature = "ml_dsa")]
+pub use ml_dsa::*;
+
+mod utils;
+pub use utils::*;
