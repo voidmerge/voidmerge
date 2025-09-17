@@ -73,7 +73,10 @@ pub struct CryptoSigner(Arc<[SignerItem]>);
 
 impl CryptoSigner {
     /// Sign some data with our signer.
-    pub fn sign_prehashed_512_bits(&self, hash: &[u8]) -> Result<CryptoSignature> {
+    pub fn sign_prehashed_512_bits(
+        &self,
+        hash: &[u8],
+    ) -> Result<CryptoSignature> {
         todo!()
     }
 }
