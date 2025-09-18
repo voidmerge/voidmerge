@@ -58,6 +58,78 @@ impl Default for CryptoSignRegistry {
     }
 }
 
+struct VerifierItem {
+    pub sign: DynCryptoSign,
+    pub pk: CryptoSignPublic,
+}
+
+/// A verifier capable of verifying VoidMerge signatures.
+#[derive(Clone)]
+pub struct CryptoVerifier {
+    verify_list: Arc<[VerifierItem]>,
+}
+
+impl CryptoVerifier {
+    /// Construct a new [CryptoVerifier] from a sysuser data item.
+    pub fn with_sysuser(
+        registry: &CryptoSignRegistry,
+        sysuser: &crate::data::VmDataSigned,
+    ) -> Result<Self> {
+        #[derive(Debug, serde::Deserialize)]
+        struct Pk {
+            a: String,
+            p: CryptoSignPublic,
+        }
+
+        let syspk = match sysuser.app_data.get("syspk") {
+            Some(crate::types::Value::Bytes(syspk)) => syspk,
+            _ => {
+                return Err(std::io::Error::other(
+                    "invalid sysuser (no syspk app data)",
+                ));
+            }
+        };
+
+        let syspk: Vec<Pk> = crate::types::decode(syspk)?;
+
+        let mut verify_list = Vec::new();
+
+        for Pk { a, p } in syspk {
+            let sign = registry.crypto(&a).ok_or_else(|| {
+                std::io::Error::other(format!("invalid signing algorithm: {a}"))
+            })?;
+            verify_list.push(VerifierItem {
+                sign: sign.clone(),
+                pk: p,
+            });
+        }
+
+        let this = Self {
+            verify_list: verify_list.into_boxed_slice().into(),
+        };
+
+        this.verify_prehashed_512_bits(&sysuser.signature, &sysuser.sha512)?;
+
+        Ok(this)
+    }
+
+    /// Verify prehashed data. The data to verify should be a 512 bit hash.
+    fn verify_prehashed_512_bits(
+        &self,
+        signature: &CryptoSignature,
+        hash: &[u8],
+    ) -> Result<()> {
+        let sigs: Vec<CryptoSignature> = crate::types::decode(signature)?;
+        if sigs.is_empty() || sigs.len() != self.verify_list.len() {
+            return Err(std::io::Error::other("signature count mismatch"));
+        }
+        for (sig, item) in sigs.into_iter().zip(self.verify_list.iter()) {
+            item.sign.verify_prehashed_512_bits(&item.pk, &sig, hash)?;
+        }
+        Ok(())
+    }
+}
+
 struct SignerItem {
     pub sign: DynCryptoSign,
     pub sk: CryptoSignSecret,
@@ -69,6 +141,7 @@ struct SignerItem {
 pub struct CryptoSigner {
     sign_list: Arc<[SignerItem]>,
     sysuser: crate::data::VmDataSigned,
+    verifier: CryptoVerifier,
 }
 
 impl CryptoSigner {
@@ -79,6 +152,7 @@ impl CryptoSigner {
         use crate::types::Value;
 
         let mut sign_list = Vec::new();
+        let mut verify_list = Vec::new();
         let mut syspk = Value::array_new();
 
         for sign in alg_list {
@@ -87,6 +161,10 @@ impl CryptoSigner {
             pkdata.map_insert("a".into(), sign.alg().into());
             pkdata.map_insert("p".into(), pk.clone().into());
             syspk.array_push(pkdata);
+            verify_list.push(VerifierItem {
+                sign: sign.clone(),
+                pk: pk.clone(),
+            });
             sign_list.push(SignerItem { sign, sk, pk });
         }
 
@@ -104,9 +182,14 @@ impl CryptoSigner {
 
         data.app_data.insert("syspk".into(), syspk.into());
 
+        let verifier = CryptoVerifier {
+            verify_list: verify_list.into_boxed_slice().into(),
+        };
+
         let mut this = Self {
             sign_list: sign_list.into_boxed_slice().into(),
             sysuser: Default::default(),
+            verifier,
         };
 
         let pk = data.sign(&this)?;
@@ -148,9 +231,12 @@ impl CryptoSigner {
             });
         }
 
+        let verifier = CryptoVerifier::with_sysuser(registry, &u)?;
+
         Ok(Self {
             sign_list: sign_list.into_boxed_slice().into(),
             sysuser: u,
+            verifier,
         })
     }
 
@@ -162,6 +248,11 @@ impl CryptoSigner {
     /// Get the sysuser associated with this signer.
     pub fn sysuser(&self) -> &crate::data::VmDataSigned {
         &self.sysuser
+    }
+
+    /// Get the crypto verifier for this signer.
+    pub fn verifier(&self) -> &CryptoVerifier {
+        &self.verifier
     }
 
     /// Encode secrets.
