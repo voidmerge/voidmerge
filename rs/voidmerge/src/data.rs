@@ -7,6 +7,14 @@ use std::collections::HashMap;
 use std::io::Result;
 use std::sync::Arc;
 
+/// Get a current time timestamp.
+pub fn now() -> f64 {
+    std::time::SystemTime::UNIX_EPOCH
+        .elapsed()
+        .expect("time error")
+        .as_secs_f64()
+}
+
 #[inline(always)]
 fn str_empty(s: &Arc<str>) -> bool {
     s.is_empty()

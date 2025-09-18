@@ -194,6 +194,12 @@ impl From<Bytes> for Value {
     }
 }
 
+impl From<crate::types::Hash> for Value {
+    fn from(h: crate::types::Hash) -> Self {
+        Self::Bytes(h.into())
+    }
+}
+
 impl Value {
     /// Construct a new empty [Value::Array].
     pub fn array_new() -> Self {

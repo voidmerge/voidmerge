@@ -36,6 +36,19 @@ impl std::fmt::Debug for CryptoSignSecret {
     }
 }
 
+/// Encode into canonical msgpack format into a zeroizing buffer.
+pub fn encode_secret<T>(t: &T) -> Result<CryptoSignSecret>
+where
+    T: serde::Serialize + ?Sized,
+{
+    let mut out = Vec::new();
+
+    rmp_serde::encode::write_named(&mut std::io::Cursor::new(&mut out), t)
+        .map_err(std::io::Error::other)?;
+
+    Ok(out.into())
+}
+
 /// Cryptograhic signatures.
 pub trait CryptoSign: std::fmt::Debug + 'static + Send + Sync {
     /// Algorithm identifier.
