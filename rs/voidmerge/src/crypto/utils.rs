@@ -63,9 +63,10 @@ struct VerifierItem {
     pub pk: CryptoSignPublic,
 }
 
-/// A verifier capable of verifying VoidMerge signatures.
+/// A verifier capable of validating VoidMerge signatures.
 #[derive(Clone)]
 pub struct CryptoVerifier {
+    sysuser_ident: crate::types::Hash,
     verify_list: Arc<[VerifierItem]>,
 }
 
@@ -104,13 +105,28 @@ impl CryptoVerifier {
             });
         }
 
+        let sysuser_ident = sysuser.canon_ident();
+
         let this = Self {
+            sysuser_ident,
             verify_list: verify_list.into_boxed_slice().into(),
         };
 
-        this.verify_prehashed_512_bits(&sysuser.signature, &sysuser.sha512)?;
+        this.verify_data(sysuser)?;
 
         Ok(this)
+    }
+
+    /// Verify a vm object signed by the sysuser this [CryptoVerifier]
+    /// represents.
+    pub fn verify_data(
+        &self,
+        data: &crate::data::VmDataSigned,
+    ) -> Result<()> {
+        if data.canon_ident() != self.sysuser_ident {
+            return Err(std::io::Error::other("attempting to verify data with wrong sysuser"));
+        }
+        self.verify_prehashed_512_bits(&data.signature, &data.sha512)
     }
 
     /// Verify prehashed data. The data to verify should be a 512 bit hash.
@@ -174,7 +190,7 @@ impl CryptoSigner {
 
         let mut data = crate::data::VmData {
             typ: "sysuser".into(),
-            ident,
+            ident: ident.clone(),
             created_secs: crate::data::now(),
             signer,
             ..Default::default()
@@ -183,6 +199,7 @@ impl CryptoSigner {
         data.app_data.insert("syspk".into(), syspk.into());
 
         let verifier = CryptoVerifier {
+            sysuser_ident: ident,
             verify_list: verify_list.into_boxed_slice().into(),
         };
 
