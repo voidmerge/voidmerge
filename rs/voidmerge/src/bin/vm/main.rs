@@ -1,3 +1,4 @@
+/*
 #![allow(clippy::collapsible_if)]
 use std::sync::Arc;
 
@@ -143,7 +144,7 @@ struct ContextArg {
     logic_utf8_single: Option<std::path::PathBuf>,
 
     /// Recursively upload files in this directory as sysweb items
-    /// to be served at `/web/{context}/*` paths.
+    /// to be served at `/web/{context}/ *` paths.
     #[arg(long, env = "VM_WEB_ROOT")]
     web_root: Option<std::path::PathBuf>,
 
@@ -770,3 +771,5 @@ async fn restore(
 
 #[cfg(test)]
 mod test;
+*/
+pub fn main() {}

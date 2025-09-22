@@ -14,6 +14,10 @@
 //! If you want to write a VoidMerge application,
 //! see the [Typescript Client API Docs](https://voidmerge.com/ts).
 
+pub mod error;
+pub use error::{Error, ErrorExt, Result};
+
+/*
 use bytes::Bytes;
 use std::io::Result;
 use std::sync::{Arc, Mutex};
@@ -32,3 +36,4 @@ pub mod types;
 
 #[cfg(test)]
 mod test;
+*/

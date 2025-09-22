@@ -12,59 +12,59 @@ keywords = [ "p2p", "verify", "verifiable" ]
 categories = [ "database", "database-implementations", "network-programming", "web-programming" ]
 
 [dependencies]
-app_dirs2 = { workspace = true, optional = true }
-axum = { workspace = true, optional = true, features = [ "macros", "ws" ] }
-axum-server = { workspace = true, optional = true }
-base64 = { workspace = true }
-bytes = { workspace = true, features = [ "serde" ] }
-clap = { workspace = true, features = [ "derive", "env", "wrap_help" ], optional = true }
-digest = { workspace = true }
-ed25519-dalek = { workspace = true, features = [ "digest", "rand_core" ], optional = true }
-fd-lock = { workspace = true }
-futures = { workspace = true }
-maplit = { workspace = true }
-mime_guess = { workspace = true, optional = true }
-num_cpus = { workspace = true }
-oqs = { workspace = true, default-features = false, features = [ "std", "ml_dsa" ], optional = true }
-p256 = { workspace = true, optional = true }
-rand = { workspace = true }
-reqwest = { workspace = true }
-rmp-serde = { workspace = true }
-serde = { workspace = true, features = [ "derive", "rc" ] }
-serde_json = { workspace = true }
-serde_v8 = { workspace = true, optional = true }
-sha2 = { workspace = true }
-tokio = { workspace = true, features = [ "sync", "fs" ] }
-tower-http = { workspace = true, features = [ "cors" ] }
-tracing = { workspace = true }
-tracing-subscriber = { workspace = true, optional = true, features = [ "env-filter" ] }
-v8 = { workspace = true, optional = true }
-zeroize = { workspace = true, features = [ "derive" ] }
-zip = { workspace = true, optional = true }
+#app_dirs2 = { workspace = true, optional = true }
+#axum = { workspace = true, optional = true, features = [ "macros", "ws" ] }
+#axum-server = { workspace = true, optional = true }
+#base64 = { workspace = true }
+#bytes = { workspace = true, features = [ "serde" ] }
+#clap = { workspace = true, features = [ "derive", "env", "wrap_help" ], optional = true }
+#digest = { workspace = true }
+#ed25519-dalek = { workspace = true, features = [ "digest", "rand_core" ], optional = true }
+#fd-lock = { workspace = true }
+#futures = { workspace = true }
+#maplit = { workspace = true }
+#mime_guess = { workspace = true, optional = true }
+#num_cpus = { workspace = true }
+#oqs = { workspace = true, default-features = false, features = [ "std", "ml_dsa" ], optional = true }
+#p256 = { workspace = true, optional = true }
+#rand = { workspace = true }
+#reqwest = { workspace = true }
+#rmp-serde = { workspace = true }
+#serde = { workspace = true, features = [ "derive", "rc" ] }
+#serde_json = { workspace = true }
+#serde_v8 = { workspace = true, optional = true }
+#sha2 = { workspace = true }
+#tokio = { workspace = true, features = [ "sync", "fs" ] }
+#tower-http = { workspace = true, features = [ "cors" ] }
+#tracing = { workspace = true }
+#tracing-subscriber = { workspace = true, optional = true, features = [ "env-filter" ] }
+#v8 = { workspace = true, optional = true }
+#zeroize = { workspace = true, features = [ "derive" ] }
+#zip = { workspace = true, optional = true }
 
 [dev-dependencies]
-tempfile = { workspace = true }
+#tempfile = { workspace = true }
 
 [features]
-default = [ "http-server", "vm", "v8", "p256", "ml_dsa", "ed25519" ]
+#default = [ "http-server", "vm", "v8", "p256", "ml_dsa", "ed25519" ]
 
 # The http server types.
-http-server = [ "vm", "dep:axum", "dep:axum-server" ]
+#http-server = [ "vm", "dep:axum", "dep:axum-server" ]
 
 # The cli tool.
-vm = [ "dep:app_dirs2", "dep:clap", "dep:mime_guess", "tokio/full", "dep:tracing-subscriber", "dep:zip" ]
+#vm = [ "dep:app_dirs2", "dep:clap", "dep:mime_guess", "tokio/full", "dep:tracing-subscriber", "dep:zip" ]
 
 # Build and include the v8 validation module.
-v8 = [ "dep:v8", "dep:serde_v8" ]
+#v8 = [ "dep:v8", "dep:serde_v8" ]
 
 # Build and include the p256 signing module.
-p256 = [ "dep:p256" ]
+#p256 = [ "dep:p256" ]
 
 # Build and include the ml dsa signing modules.
-ml_dsa = [ "dep:oqs" ]
+#ml_dsa = [ "dep:oqs" ]
 
 # Build and include the ed25519 signing module.
-ed25519 = [ "dep:ed25519-dalek" ]
+#ed25519 = [ "dep:ed25519-dalek" ]
 
 [package.metadata.docs.rs]
 all-features = true
