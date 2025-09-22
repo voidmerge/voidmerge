@@ -17,6 +17,15 @@
 pub mod error;
 pub use error::{Error, ErrorExt, Result};
 
+/// A boxed future.
+pub type BoxFut<'lt, T> =
+    std::pin::Pin<Box<dyn std::future::Future<Output = T> + 'lt + Send>>;
+
+#[cfg(feature = "http-server")]
+pub mod http_server;
+pub mod obj;
+pub mod server;
+
 /*
 use bytes::Bytes;
 use std::io::Result;

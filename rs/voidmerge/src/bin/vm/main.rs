@@ -1,3 +1,65 @@
+use voidmerge::*;
+
+#[derive(Debug, clap::Parser)]
+#[command(version, about)]
+struct Arg {
+    #[command(subcommand)]
+    cmd: Cmd,
+}
+
+#[derive(Debug, clap::Subcommand)]
+enum Cmd {
+    /// Run the VoidMerge HTTP server.
+    #[cfg(feature = "http-server")]
+    Serve(ServeArg),
+}
+
+#[cfg(feature = "http-server")]
+#[derive(Debug, clap::Args)]
+struct ServeArg {
+    /// Http server address to bind.
+    #[arg(long, env = "VM_HTTP_ADDR", default_value = "[::]:8080")]
+    http_addr: String,
+}
+
+#[tokio::main(flavor = "multi_thread")]
+async fn main() -> Result<()> {
+    tracing::subscriber::set_global_default(
+        tracing_subscriber::FmtSubscriber::builder()
+            .with_env_filter(
+                tracing_subscriber::EnvFilter::builder()
+                    .with_default_directive(
+                        tracing_subscriber::filter::LevelFilter::INFO.into(),
+                    )
+                    .from_env_lossy(),
+            )
+            .compact()
+            .without_time()
+            .finish(),
+    )
+    .unwrap();
+
+    let arg: Arg = clap::Parser::parse();
+
+    match arg.cmd {
+        #[cfg(feature = "http-server")]
+        Cmd::Serve(ServeArg { http_addr }) => serve(http_addr).await,
+    }
+}
+
+async fn serve(http_addr: String) -> Result<()> {
+    let http_addr: std::net::SocketAddr = http_addr.parse().map_err(|err| {
+        Error::other(err).with_info("failed to parse http server bind address")
+    })?;
+    let (s, r) = tokio::sync::oneshot::channel();
+    tokio::task::spawn(async move {
+        if let Ok(addr) = r.await {
+            println!("#vm#listening#{addr:?}#");
+        }
+    });
+    http_server::http_server(s, http_addr).await
+}
+
 /*
 #![allow(clippy::collapsible_if)]
 use std::sync::Arc;
@@ -772,4 +834,3 @@ async fn restore(
 #[cfg(test)]
 mod test;
 */
-pub fn main() {}

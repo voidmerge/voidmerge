@@ -13,11 +13,11 @@ categories = [ "database", "database-implementations", "network-programming", "w
 
 [dependencies]
 #app_dirs2 = { workspace = true, optional = true }
-#axum = { workspace = true, optional = true, features = [ "macros", "ws" ] }
-#axum-server = { workspace = true, optional = true }
-#base64 = { workspace = true }
-#bytes = { workspace = true, features = [ "serde" ] }
-#clap = { workspace = true, features = [ "derive", "env", "wrap_help" ], optional = true }
+axum = { workspace = true, optional = true, features = [ "macros", "ws" ] }
+axum-server = { workspace = true, optional = true }
+base64 = { workspace = true }
+bytes = { workspace = true, features = [ "serde" ] }
+clap = { workspace = true, features = [ "derive", "env", "wrap_help" ], optional = true }
 #digest = { workspace = true }
 #ed25519-dalek = { workspace = true, features = [ "digest", "rand_core" ], optional = true }
 #fd-lock = { workspace = true }
@@ -30,14 +30,14 @@ categories = [ "database", "database-implementations", "network-programming", "w
 #rand = { workspace = true }
 #reqwest = { workspace = true }
 #rmp-serde = { workspace = true }
-#serde = { workspace = true, features = [ "derive", "rc" ] }
+serde = { workspace = true, features = [ "derive", "rc" ] }
 #serde_json = { workspace = true }
 #serde_v8 = { workspace = true, optional = true }
 #sha2 = { workspace = true }
-#tokio = { workspace = true, features = [ "sync", "fs" ] }
-#tower-http = { workspace = true, features = [ "cors" ] }
-#tracing = { workspace = true }
-#tracing-subscriber = { workspace = true, optional = true, features = [ "env-filter" ] }
+tokio = { workspace = true, features = [ "sync", "fs" ] }
+tower-http = { workspace = true, optional = true, features = [ "cors" ] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, optional = true, features = [ "env-filter" ] }
 #v8 = { workspace = true, optional = true }
 #zeroize = { workspace = true, features = [ "derive" ] }
 #zip = { workspace = true, optional = true }
@@ -47,9 +47,13 @@ categories = [ "database", "database-implementations", "network-programming", "w
 
 [features]
 #default = [ "http-server", "vm", "v8", "p256", "ml_dsa", "ed25519" ]
+default = [ "http-server", "cli" ]
 
 # The http server types.
-#http-server = [ "vm", "dep:axum", "dep:axum-server" ]
+http-server = [ "dep:axum", "dep:axum-server", "dep:tower-http" ]
+
+# The cli tool.
+cli = [ "dep:clap", "tokio/full", "dep:tracing-subscriber" ]
 
 # The cli tool.
 #vm = [ "dep:app_dirs2", "dep:clap", "dep:mime_guess", "tokio/full", "dep:tracing-subscriber", "dep:zip" ]

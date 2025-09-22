@@ -1,3 +1,19 @@
+//! A server manages multiple contexts.
+
+use crate::*;
+
+/// A server manages multiple contexts.
+#[derive(Default)]
+pub struct Server {}
+
+impl Server {
+    /// A general health check that is not context-specific.
+    pub fn health(&self) -> Result<()> {
+        Ok(())
+    }
+}
+
+/*
 //! A server runs with a [config::Config], and manages multiple [Context]s.
 
 use crate::*;
@@ -500,3 +516,4 @@ impl TokenTracker {
         }
     }
 }
+*/

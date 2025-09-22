@@ -2,6 +2,89 @@
 
 use crate::*;
 use axum::response::IntoResponse;
+use std::sync::Arc;
+
+struct State {
+    server: Arc<server::Server>,
+}
+
+struct ErrTx(std::io::Error);
+
+impl From<std::io::Error> for ErrTx {
+    fn from(e: std::io::Error) -> Self {
+        Self(e)
+    }
+}
+
+impl axum::response::IntoResponse for ErrTx {
+    fn into_response(self) -> axum::response::Response {
+        let str_err = format!("{:?}", self.0);
+
+        use axum::http::StatusCode as H;
+        use std::io::ErrorKind::*;
+
+        match self.0.kind() {
+            NotFound => (H::NOT_FOUND, str_err),
+            PermissionDenied => (H::UNAUTHORIZED, str_err),
+            InvalidInput | InvalidData => (H::BAD_REQUEST, str_err),
+            QuotaExceeded => (H::TOO_MANY_REQUESTS, str_err),
+            FileTooLarge => (H::PAYLOAD_TOO_LARGE, str_err),
+            // Interrupted->CONFLICT because both of these indicate
+            // the user should just try again.
+            Interrupted => (H::CONFLICT, str_err),
+            _ => (H::INTERNAL_SERVER_ERROR, str_err),
+        }
+        .into_response()
+    }
+}
+
+type AxumResult = std::result::Result<axum::response::Response, ErrTx>;
+
+/// Execute a VoidMerge http server process.
+pub async fn http_server(
+    running: tokio::sync::oneshot::Sender<std::net::SocketAddr>,
+    bind: std::net::SocketAddr,
+) -> Result<()> {
+    let state = Arc::new(State {
+        server: Arc::new(server::Server::default()),
+    });
+
+    let cors = tower_http::cors::CorsLayer::new()
+        .allow_methods([axum::http::Method::GET, axum::http::Method::PUT])
+        .allow_headers([axum::http::header::AUTHORIZATION])
+        .allow_origin(tower_http::cors::Any);
+
+    let app: axum::Router<Arc<State>> =
+        axum::Router::new().route("/", axum::routing::get(route_health));
+
+    let app = app
+        .layer(cors)
+        .with_state(state)
+        .into_make_service_with_connect_info::<std::net::SocketAddr>();
+
+    let handle = axum_server::Handle::new();
+
+    let server = axum_server::bind(bind).handle(handle.clone()).serve(app);
+
+    tokio::task::spawn(async move {
+        if let Some(bound_addr) = handle.listening().await {
+            let _ = running.send(bound_addr);
+        }
+    });
+
+    server.await
+}
+
+async fn route_health(
+    axum::extract::State(state): axum::extract::State<Arc<State>>,
+) -> AxumResult {
+    state.server.health()?;
+    Ok("Ok".into_response())
+}
+
+/*
+use crate::*;
+use axum::response::IntoResponse;
 use std::collections::HashMap;
 use types::*;
 
@@ -125,7 +208,7 @@ impl HttpServer {
             );
         }
 
-        let app = app
+let app = app
             .layer(cors)
             .with_state(app_state)
             .into_make_service_with_connect_info::<std::net::SocketAddr>();
@@ -464,3 +547,4 @@ async fn route_web(
         .body(axum::body::Body::from(data))
         .map_err(std::io::Error::other)?)
 }
+*/
