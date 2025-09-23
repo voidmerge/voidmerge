@@ -30,8 +30,9 @@ clap = { workspace = true, features = [ "derive", "env", "wrap_help" ], optional
 #rand = { workspace = true }
 #reqwest = { workspace = true }
 rmp-serde = { workspace = true }
+rustyscript = { version = "0.12.3", default-features = false, features = ["web_stub", "url", "crypto", "console"] }
 serde = { workspace = true, features = [ "derive", "rc" ] }
-#serde_json = { workspace = true }
+serde_json = { workspace = true }
 #serde_v8 = { workspace = true, optional = true }
 #sha2 = { workspace = true }
 tokio = { workspace = true, features = [ "sync", "fs" ] }

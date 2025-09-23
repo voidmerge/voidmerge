@@ -15,7 +15,7 @@ pub trait ObjListPager {
 pub type DynObjListPager = Box<dyn ObjListPager + 'static + Send>;
 
 /// Low-level object store trait.
-pub trait Obj {
+pub trait Obj: 'static + Send + Sync {
     /// Get an object by path from the store.
     fn get(&self, path: Arc<str>) -> BoxFut<'_, Result<Bytes>>;
 
@@ -67,10 +67,8 @@ impl ObjMeta {
     pub(crate) fn with_path(
         path: &str,
     ) -> Result<(&'static str, Arc<str>, Self)> {
-        use base64::prelude::*;
-
-        let mut sys_prefix: &'static str = Default::default();
-        let mut ctx = Default::default();
+        let sys_prefix: &'static str;
+        let ctx;
         let mut out = ObjMeta::default();
 
         let mut iter = path.split('/');
@@ -132,7 +130,6 @@ impl ObjMeta {
         sys_prefix: &'static str,
         ctx: Arc<str>,
     ) -> Arc<str> {
-        use base64::prelude::*;
         format!(
             "{}/{}/{}/{}/{}",
             sys_prefix, ctx, self.path, self.created_secs, self.expires_secs,

@@ -57,7 +57,10 @@ async fn serve(http_addr: String) -> Result<()> {
             println!("#vm#listening#{addr:?}#");
         }
     });
-    let server = server::Server::new(obj::ObjMem::create()).await?;
+    let server = server::Server::new(
+        obj::ObjMem::create(),
+        js::JsExecDefault::create(),
+    ).await?;
     http_server::http_server(s, http_addr, server).await
 }
 

@@ -32,6 +32,7 @@ fn sys_now() -> f64 {
 pub mod bytes_ext;
 #[cfg(feature = "http-server")]
 pub mod http_server;
+pub mod js;
 pub mod obj;
 pub mod server;
 

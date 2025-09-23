@@ -5,13 +5,18 @@ use crate::*;
 /// A server manages multiple contexts.
 pub struct Server {
     obj: obj::ObjWrap,
+    js: js::DynJsExec,
 }
 
 impl Server {
     /// Construct a new server.
-    pub async fn new(obj: obj::DynObj) -> Result<Self> {
+    pub async fn new(
+        obj: obj::DynObj,
+        js: js::DynJsExec,
+    ) -> Result<Self> {
         Ok(Self {
             obj: obj::ObjWrap::new(obj).await?,
+            js,
         })
     }
 
