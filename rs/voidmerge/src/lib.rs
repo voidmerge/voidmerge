@@ -21,6 +21,14 @@ pub use error::{Error, ErrorExt, Result};
 pub type BoxFut<'lt, T> =
     std::pin::Pin<Box<dyn std::future::Future<Output = T> + 'lt + Send>>;
 
+/// Current system time as f64 seconds.
+fn sys_now() -> f64 {
+    std::time::SystemTime::UNIX_EPOCH
+        .elapsed()
+        .expect("system time error")
+        .as_secs_f64()
+}
+
 #[cfg(feature = "http-server")]
 pub mod http_server;
 pub mod obj;

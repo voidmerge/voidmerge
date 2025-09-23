@@ -44,9 +44,10 @@ type AxumResult = std::result::Result<axum::response::Response, ErrTx>;
 pub async fn http_server(
     running: tokio::sync::oneshot::Sender<std::net::SocketAddr>,
     bind: std::net::SocketAddr,
+    server: server::Server,
 ) -> Result<()> {
     let state = Arc::new(State {
-        server: Arc::new(server::Server::default()),
+        server: Arc::new(server),
     });
 
     let cors = tower_http::cors::CorsLayer::new()

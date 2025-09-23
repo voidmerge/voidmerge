@@ -3,10 +3,18 @@
 use crate::*;
 
 /// A server manages multiple contexts.
-#[derive(Default)]
-pub struct Server {}
+pub struct Server {
+    obj: obj::ObjWrap,
+}
 
 impl Server {
+    /// Construct a new server.
+    pub async fn new(obj: obj::DynObj) -> Result<Self> {
+        Ok(Self {
+            obj: obj::ObjWrap::new(obj),
+        })
+    }
+
     /// A general health check that is not context-specific.
     pub fn health(&self) -> Result<()> {
         Ok(())
