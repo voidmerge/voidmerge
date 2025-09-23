@@ -17,6 +17,9 @@ pub trait ErrorExt: Send + Sync {
 
     /// An error indicating an operation took too long.
     fn timeout(src: impl Into<Box<dyn StdError + Send + Sync>>) -> Error;
+
+    /// An error indicating an item was not found.
+    fn not_found(src: impl Into<Box<dyn StdError + Send + Sync>>) -> Error;
 }
 
 impl ErrorExt for Error {
@@ -59,6 +62,10 @@ impl ErrorExt for Error {
 
     fn timeout(src: impl Into<Box<dyn StdError + Send + Sync>>) -> Error {
         std::io::Error::new(std::io::ErrorKind::TimedOut, src)
+    }
+
+    fn not_found(src: impl Into<Box<dyn StdError + Send + Sync>>) -> Error {
+        std::io::Error::new(std::io::ErrorKind::NotFound, src)
     }
 }
 

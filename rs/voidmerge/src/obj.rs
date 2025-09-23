@@ -2,7 +2,8 @@
 
 use crate::*;
 use bytes::Bytes;
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 /// Callback for receiving metadata for object listing.
 pub type ObjLowListPageCb = Arc<dyn Fn(Vec<Arc<str>>) + 'static + Send + Sync>;
@@ -10,17 +11,17 @@ pub type ObjLowListPageCb = Arc<dyn Fn(Vec<Arc<str>>) + 'static + Send + Sync>;
 /// Low-level object store trait.
 pub trait ObjLow {
     /// Get an object by path from the store.
-    fn get(&self, path: &str) -> BoxFut<'_, Result<Bytes>>;
+    fn get(&self, path: Arc<str>) -> BoxFut<'_, Result<Bytes>>;
 
     /// List objects in the store by path prefix.
     fn list(
         &self,
-        path_prefix: &str,
+        path_prefix: Arc<str>,
         cb: ObjLowListPageCb,
     ) -> BoxFut<'_, Result<()>>;
 
     /// Put an object into the store.
-    fn put(&self, path: &str, obj: Bytes) -> BoxFut<'_, Result<()>>;
+    fn put(&self, path: Arc<str>, obj: Bytes) -> BoxFut<'_, Result<()>>;
 }
 
 /// Dyn [ObjLow] type.
@@ -147,7 +148,7 @@ impl ObjMeta {
     }
 
     /// Get the full system path.
-    pub fn sys_path(&self) -> String {
+    pub fn sys_path(&self) -> Arc<str> {
         use base64::prelude::*;
         let ctx = BASE64_URL_SAFE_NO_PAD.encode(&self.ctx);
         format!(
@@ -159,6 +160,7 @@ impl ObjMeta {
             self.expires_secs,
             self.recheck_interval_secs,
         )
+        .into()
     }
 }
 
@@ -171,7 +173,7 @@ pub struct Obj(DynObjLow);
 impl Obj {
     /// Get an object by metadata from the store.
     pub async fn get(&self, meta: ObjMeta) -> Result<Bytes> {
-        self.0.get(&meta.sys_path()).await
+        self.0.get(meta.sys_path()).await
     }
 
     /// List objects in the store.
@@ -184,10 +186,10 @@ impl Obj {
     ) -> Result<()> {
         use base64::prelude::*;
         let ctx = BASE64_URL_SAFE_NO_PAD.encode(&ctx);
-        let prefix = format!("{}/{}/{}", sys_prefix, ctx, path_prefix,);
+        let prefix = format!("{}/{}/{}", sys_prefix, ctx, path_prefix).into();
         self.0
             .list(
-                &prefix,
+                prefix,
                 Arc::new(move |list| {
                     let mut out = Vec::with_capacity(list.len());
                     for path in list {
@@ -213,10 +215,45 @@ impl Obj {
 
     /// Put an object into the store.
     pub async fn put(&self, meta: ObjMeta, obj: Bytes) -> Result<()> {
-        let path = meta.sys_path();
-        self.0.put(&path, obj).await
+        let path = meta.sys_path().into();
+        self.0.put(path, obj).await
     }
 }
 
-/// An in-memory object store
-pub struct ObjMem {}
+/// An in-memory object store.
+#[derive(Default)]
+pub struct ObjMem(Mutex<HashMap<Arc<str>, Bytes>>);
+
+impl ObjLow for ObjMem {
+    fn get(&self, path: Arc<str>) -> BoxFut<'_, Result<Bytes>> {
+        Box::pin(async move {
+            self.0.lock().unwrap().get(&path).cloned().ok_or_else(|| {
+                Error::not_found(format!("{path} not found in object store"))
+            })
+        })
+    }
+
+    fn list(
+        &self,
+        path_prefix: Arc<str>,
+        cb: ObjLowListPageCb,
+    ) -> BoxFut<'_, Result<()>> {
+        Box::pin(async move {
+            let mut out = Vec::new();
+            for p in self.0.lock().unwrap().keys() {
+                if p.starts_with(&*path_prefix) {
+                    out.push(p.clone());
+                }
+            }
+            cb(out);
+            Ok(())
+        })
+    }
+
+    fn put(&self, path: Arc<str>, obj: Bytes) -> BoxFut<'_, Result<()>> {
+        Box::pin(async move {
+            self.0.lock().unwrap().insert(path, obj);
+            Ok(())
+        })
+    }
+}
