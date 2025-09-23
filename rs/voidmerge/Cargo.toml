@@ -29,7 +29,7 @@ clap = { workspace = true, features = [ "derive", "env", "wrap_help" ], optional
 #p256 = { workspace = true, optional = true }
 #rand = { workspace = true }
 #reqwest = { workspace = true }
-#rmp-serde = { workspace = true }
+rmp-serde = { workspace = true }
 serde = { workspace = true, features = [ "derive", "rc" ] }
 #serde_json = { workspace = true }
 #serde_v8 = { workspace = true, optional = true }

@@ -29,10 +29,13 @@ fn sys_now() -> f64 {
         .as_secs_f64()
 }
 
+pub mod bytes_ext;
 #[cfg(feature = "http-server")]
 pub mod http_server;
 pub mod obj;
 pub mod server;
+
+use bytes_ext::BytesExt;
 
 /*
 use bytes::Bytes;

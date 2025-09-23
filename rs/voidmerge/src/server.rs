@@ -11,7 +11,7 @@ impl Server {
     /// Construct a new server.
     pub async fn new(obj: obj::DynObj) -> Result<Self> {
         Ok(Self {
-            obj: obj::ObjWrap::new(obj),
+            obj: obj::ObjWrap::new(obj).await?,
         })
     }
 

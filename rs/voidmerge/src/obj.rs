@@ -41,7 +41,7 @@ fn ts_no(f: &f64) -> bool {
 }
 
 /// Meta-data related to an object.
-#[derive(Default, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ObjMeta {
     /// The path to this object.
     #[serde(rename = "p", default, skip_serializing_if = "p_no")]
@@ -54,10 +54,6 @@ pub struct ObjMeta {
     /// Expires time of this object.
     #[serde(rename = "e", default, skip_serializing_if = "ts_no")]
     pub expires_secs: f64,
-
-    /// recheck interval of this object.
-    #[serde(rename = "r", default, skip_serializing_if = "ts_no")]
-    pub recheck_interval_secs: f64,
 }
 
 impl ObjMeta {
@@ -68,7 +64,9 @@ impl ObjMeta {
     pub(crate) const SYS_PATH_CTX: &'static str = "c";
 
     /// Parse an ObjMeta from a full system path.
-    pub(crate) fn with_path(path: &str) -> Result<(&'static str, Bytes, Self)> {
+    pub(crate) fn with_path(
+        path: &str,
+    ) -> Result<(&'static str, Arc<str>, Self)> {
         use base64::prelude::*;
 
         let mut sys_prefix: &'static str = Default::default();
@@ -90,11 +88,7 @@ impl ObjMeta {
         }
 
         if let Some(s) = iter.next() {
-            if let Ok(x) = BASE64_URL_SAFE_NO_PAD.decode(s) {
-                ctx = Bytes::copy_from_slice(&x);
-            } else {
-                return Err(Error::other("bad object store path (ctx)"));
-            }
+            ctx = s.into();
         } else {
             return Err(Error::other("bad object store path (ctx)"));
         }
@@ -129,20 +123,6 @@ impl ObjMeta {
             return Err(Error::other("bad object store path (expires_secs)"));
         }
 
-        if let Some(s) = iter.next() {
-            if let Ok(s) = s.parse() {
-                out.recheck_interval_secs = s;
-            } else {
-                return Err(Error::other(
-                    "bad object store path (recheck_interval_secs)",
-                ));
-            }
-        } else {
-            return Err(Error::other(
-                "bad object store path (recheck_interval_secs)",
-            ));
-        }
-
         Ok((sys_prefix, ctx, out))
     }
 
@@ -150,18 +130,12 @@ impl ObjMeta {
     pub(crate) fn sys_path(
         &self,
         sys_prefix: &'static str,
-        ctx: Bytes,
+        ctx: Arc<str>,
     ) -> Arc<str> {
         use base64::prelude::*;
-        let ctx = BASE64_URL_SAFE_NO_PAD.encode(&ctx);
         format!(
-            "{}/{}/{}/{}/{}/{}",
-            sys_prefix,
-            ctx,
-            self.path,
-            self.created_secs,
-            self.expires_secs,
-            self.recheck_interval_secs,
+            "{}/{}/{}/{}/{}",
+            sys_prefix, ctx, self.path, self.created_secs, self.expires_secs,
         )
         .into()
     }
@@ -169,10 +143,7 @@ impl ObjMeta {
 
 #[derive(Debug, Default)]
 struct MemItem {
-    pub path: Arc<str>,
-    pub created_secs: f64,
-    pub expires_secs: f64,
-    pub recheck_interval_secs: f64,
+    pub meta: ObjMeta,
     pub obj: Bytes,
 }
 
@@ -189,15 +160,14 @@ impl MemItem {
 
         let mut out = Self::default();
 
-        let mut iter = path.rsplitn(4, '/');
-        out.recheck_interval_secs = it_f64(&mut iter)?;
-        out.expires_secs = it_f64(&mut iter)?;
-        out.created_secs = it_f64(&mut iter)?;
+        let mut iter = path.rsplitn(3, '/');
+        out.meta.expires_secs = it_f64(&mut iter)?;
+        out.meta.created_secs = it_f64(&mut iter)?;
         let prefix: Arc<str> = iter
             .next()
             .ok_or_else(|| Error::other("failed to parse prefix"))?
             .into();
-        out.path = path;
+        out.meta.path = path;
         Ok((prefix, out))
     }
 }
@@ -225,7 +195,8 @@ impl ObjMemInner {
         self.last_prune = now;
         let now = sys_now();
         self.map.retain(|_, mem_item| {
-            mem_item.expires_secs == 0.0 || mem_item.expires_secs > now
+            mem_item.meta.expires_secs == 0.0
+                || mem_item.meta.expires_secs > now
         });
     }
 }
@@ -268,7 +239,7 @@ impl Obj for ObjMem {
                 lock.check_prune();
                 for (prefix, mem_item) in lock.map.iter() {
                     if prefix.starts_with(&*path_prefix) {
-                        out.push(mem_item.path.clone());
+                        out.push(mem_item.meta.path.clone());
                     }
                 }
             }
@@ -292,9 +263,9 @@ impl Obj for ObjMem {
             mem_item.obj = obj;
             let mut lock = self.0.lock().unwrap();
             lock.check_prune();
-            let new_created_secs = mem_item.created_secs;
+            let new_created_secs = mem_item.meta.created_secs;
             if let Some(prev_item) = lock.map.insert(prefix.clone(), mem_item) {
-                if prev_item.created_secs >= new_created_secs {
+                if prev_item.meta.created_secs >= new_created_secs {
                     // whoops, put the previous one back
                     lock.map.insert(prefix, prev_item);
                 }
@@ -302,6 +273,41 @@ impl Obj for ObjMem {
             Ok(())
         })
     }
+}
+
+// -- pub(crate) internal types -- //
+
+fn u16_min() -> u16 {
+    u16::MIN
+}
+
+fn u16_max() -> u16 {
+    u16::MAX
+}
+
+fn timeout_s() -> f64 {
+    10.0
+}
+
+#[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub(crate) struct SysSetup {
+    #[serde(rename = "x", default, skip_serializing_if = "Vec::is_empty")]
+    pub sys_admin: Vec<Arc<str>>,
+}
+
+#[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub(crate) struct CtxSetup {
+    #[serde(rename = "x", default, skip_serializing_if = "Vec::is_empty")]
+    pub ctx_admin: Vec<Arc<str>>,
+
+    #[serde(rename = "t", default = "timeout_s")]
+    pub timeout_s: f64,
+}
+
+#[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub(crate) struct CtxConfig {
+    #[serde(rename = "a", default, skip_serializing_if = "HashMap::is_empty")]
+    pub assets: HashMap<Arc<str>, Bytes>,
 }
 
 pub(crate) struct ObjWrapListPager(DynObjListPager);
@@ -321,17 +327,32 @@ impl ObjWrapListPager {
     }
 }
 
-/// Callback for receiving metadata for object listing.
-pub(crate) type ObjWrapListPageCb =
-    Arc<dyn Fn(Vec<(&'static str, Bytes, ObjMeta)>) + 'static + Send + Sync>;
-
 /// Object store type.
-pub(crate) struct ObjWrap(DynObj);
+pub(crate) struct ObjWrap {
+    inner: DynObj,
+    sys_setup: Mutex<SysSetup>,
+}
 
 impl ObjWrap {
     /// Constructor.
-    pub fn new(obj: DynObj) -> Self {
-        Self(obj)
+    pub async fn new(obj: DynObj) -> Result<Self> {
+        let this = Self {
+            inner: obj,
+            sys_setup: Default::default(),
+        };
+
+        let sys_setup = if let Ok((sys_setup, _)) = this
+            .get_single(ObjMeta::SYS_PATH_SYS, "s".into(), "setup")
+            .await
+        {
+            sys_setup.to_decode()?
+        } else {
+            SysSetup::default()
+        };
+
+        *this.sys_setup.lock().unwrap() = sys_setup;
+
+        Ok(this)
     }
 }
 
@@ -340,23 +361,21 @@ impl ObjWrap {
     pub async fn get(
         &self,
         sys_prefix: &'static str,
-        ctx: Bytes,
+        ctx: Arc<str>,
         meta: ObjMeta,
     ) -> Result<Bytes> {
-        self.0.get(meta.sys_path(sys_prefix, ctx)).await
+        self.inner.get(meta.sys_path(sys_prefix, ctx)).await
     }
 
     /// List objects in the store.
     pub async fn list(
         &self,
         sys_prefix: &'static str,
-        ctx: Bytes,
+        ctx: Arc<str>,
         path_prefix: &str,
     ) -> Result<ObjWrapListPager> {
-        use base64::prelude::*;
-        let ctx = BASE64_URL_SAFE_NO_PAD.encode(&ctx);
         let prefix = format!("{}/{}/{}", sys_prefix, ctx, path_prefix).into();
-        let pager = self.0.list(prefix).await?;
+        let pager = self.inner.list(prefix).await?;
         Ok(ObjWrapListPager(pager))
     }
 
@@ -364,12 +383,70 @@ impl ObjWrap {
     pub async fn put(
         &self,
         sys_prefix: &'static str,
-        ctx: Bytes,
+        ctx: Arc<str>,
         meta: ObjMeta,
         obj: Bytes,
     ) -> Result<()> {
+        if ctx.len() > 44 {
+            return Err(Error::other("ctx too long"));
+        }
+        if meta.path.len() > 512 {
+            return Err(Error::other("path too long"));
+        }
+        const OK: &str =
+            "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_~";
+        for c in meta.path.chars() {
+            if !OK.contains(c) {
+                return Err(Error::other(format!(
+                    "invalid characters in path (azAZ09-_~): {}",
+                    &meta.path
+                )));
+            }
+        }
         let path = meta.sys_path(sys_prefix, ctx).into();
-        self.0.put(path, obj).await
+        self.inner.put(path, obj).await
+    }
+
+    /// Get a single item.
+    pub async fn get_single(
+        &self,
+        sys_prefix: &'static str,
+        ctx: Arc<str>,
+        path_part: &str,
+    ) -> Result<(Bytes, ObjMeta)> {
+        let mut page = self.list(sys_prefix, ctx.clone(), path_part).await?;
+        while let Ok(Some(page)) = page.next().await {
+            for meta in page {
+                let obj = self.get(sys_prefix, ctx, meta.clone()).await?;
+                return Ok((obj, meta));
+            }
+        }
+        Err(Error::not_found(format!(
+            "could not find {sys_prefix}/{ctx}/{path_part}"
+        )))
+    }
+
+    /// Get the sys_setup.
+    pub fn get_sys_setup(&self) -> SysSetup {
+        self.sys_setup.lock().unwrap().clone()
+    }
+
+    /// Set the sys_setup.
+    pub async fn set_sys_setup(&self, sys_setup: SysSetup) -> Result<()> {
+        let meta = ObjMeta {
+            path: "setup".into(),
+            created_secs: sys_now(),
+            ..Default::default()
+        };
+        self.put(
+            ObjMeta::SYS_PATH_SYS,
+            "s".into(),
+            meta,
+            Bytes::from_encode(&sys_setup)?,
+        )
+        .await?;
+        *self.sys_setup.lock().unwrap() = sys_setup;
+        Ok(())
     }
 }
 
@@ -379,13 +456,13 @@ mod test {
 
     #[tokio::test]
     async fn obj_mem() {
-        let o = ObjWrap::new(ObjMem::create());
+        let o = ObjWrap::new(ObjMem::create()).await.unwrap();
 
-        const CTX: Bytes = Bytes::from_static(b"\0\0\0");
+        let ctx: Arc<str> = "AAAA".into();
 
         o.put(
             ObjMeta::SYS_PATH_SYS,
-            CTX.clone(),
+            ctx.clone(),
             ObjMeta {
                 path: "test".into(),
                 created_secs: sys_now(),
@@ -398,7 +475,7 @@ mod test {
 
         let mut found = Vec::new();
         let mut p = o
-            .list(ObjMeta::SYS_PATH_SYS, CTX.clone(), "t".into())
+            .list(ObjMeta::SYS_PATH_SYS, ctx.clone(), "t".into())
             .await
             .unwrap();
         while let Ok(Some(mut v)) = p.next().await {
@@ -407,7 +484,7 @@ mod test {
         let found = found.remove(0);
 
         let got = o
-            .get(ObjMeta::SYS_PATH_SYS, CTX.clone(), found)
+            .get(ObjMeta::SYS_PATH_SYS, ctx.clone(), found)
             .await
             .unwrap();
 
