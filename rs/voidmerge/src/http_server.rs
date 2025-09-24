@@ -56,7 +56,10 @@ pub async fn http_server(
         .allow_origin(tower_http::cors::Any);
 
     let app: axum::Router<Arc<State>> =
-        axum::Router::new().route("/", axum::routing::get(route_health));
+        axum::Router::new()
+            .route("/", axum::routing::get(route_health_get))
+            .route("/ctx-setup", axum::routing::put(route_ctx_setup_put))
+        ;
 
     let app = app
         .layer(cors)
@@ -76,10 +79,39 @@ pub async fn http_server(
     server.await
 }
 
-async fn route_health(
+fn auth_token(headers: &axum::http::HeaderMap) -> Arc<str> {
+    headers
+        .get("authorization")
+        .and_then(|t| t.to_str().ok())
+        .and_then(|t| {
+            let (k, v) = t.split_once(" ")?;
+            if k.trim().to_lowercase() == "bearer" {
+                Some(v.trim())
+            } else {
+                None
+            }
+        })
+        .unwrap_or("")
+        .into()
+}
+
+async fn route_health_get(
     axum::extract::State(state): axum::extract::State<Arc<State>>,
 ) -> AxumResult {
-    state.server.health()?;
+    state.server.health_get().await?;
+    Ok("Ok".into_response())
+}
+
+async fn route_ctx_setup_put(
+    headers: axum::http::HeaderMap,
+    axum::extract::ConnectInfo(_addr): axum::extract::ConnectInfo<
+        std::net::SocketAddr,
+    >,
+    axum::extract::State(state): axum::extract::State<Arc<State>>,
+    payload: bytes::Bytes,
+) -> AxumResult {
+    let token = auth_token(&headers);
+    state.server.ctx_setup_put(token, payload.to_decode()?).await?;
     Ok("Ok".into_response())
 }
 

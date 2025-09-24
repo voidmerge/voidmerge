@@ -20,6 +20,9 @@ pub trait ErrorExt: Send + Sync {
 
     /// An error indicating an item was not found.
     fn not_found(src: impl Into<Box<dyn StdError + Send + Sync>>) -> Error;
+
+    /// Unauthorized access.
+    fn unauthorized(src: impl Into<Box<dyn StdError + Send + Sync>>) -> Error;
 }
 
 impl ErrorExt for Error {
@@ -66,6 +69,10 @@ impl ErrorExt for Error {
 
     fn not_found(src: impl Into<Box<dyn StdError + Send + Sync>>) -> Error {
         std::io::Error::new(std::io::ErrorKind::NotFound, src)
+    }
+
+    fn unauthorized(src: impl Into<Box<dyn StdError + Send + Sync>>) -> Error {
+        std::io::Error::new(std::io::ErrorKind::PermissionDenied, src)
     }
 }
 

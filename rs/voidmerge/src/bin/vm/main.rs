@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use voidmerge::*;
 
 #[derive(Debug, clap::Parser)]
@@ -12,14 +13,59 @@ enum Cmd {
     /// Run the VoidMerge HTTP server.
     #[cfg(feature = "http-server")]
     Serve(ServeArg),
+
+    /// Execute a health check against a server.
+    Health(HealthArg),
+
+    /// Setup/configure a context.
+    CtxSetup(CtxSetupArg),
 }
 
 #[cfg(feature = "http-server")]
 #[derive(Debug, clap::Args)]
 struct ServeArg {
+    /// SysAdmin tokens to inject during startup.
+    /// (Environment variable is comma delimited).
+    #[arg(long, env = "VM_SYS_ADMIN_TOKENS", value_delimiter = ',')]
+    sys_admin: Vec<Arc<str>>,
+
     /// Http server address to bind.
     #[arg(long, env = "VM_HTTP_ADDR", default_value = "[::]:8080")]
     http_addr: String,
+}
+
+#[derive(Debug, clap::Args)]
+struct HealthArg {
+    /// The server url.
+    #[arg(long, env = "VM_URL")]
+    url: String,
+}
+
+#[derive(Debug, clap::Args)]
+struct CtxSetupArg {
+    /// The server url.
+    #[arg(long, env = "VM_URL")]
+    url: String,
+
+    /// The sys admin api token to use.
+    #[arg(long, env = "VM_SYS_ADMIN")]
+    sys_admin: Arc<str>,
+
+    /// The context to configure.
+    #[arg(long, env = "VM_CONTEXT")]
+    context: Arc<str>,
+
+    /// CtxAdmin tokens to use for the context.
+    #[arg(long, env = "VM_CTX_ADMIN_TOKENS", value_delimiter = ',')]
+    ctx_admin: Vec<Arc<str>>,
+
+    /// Timeout for function invocations.
+    #[arg(long, env = "VM_TIMEOUT_SECS", default_value = "10.0")]
+    timeout_secs: f64,
+
+    /// Max memory allowed for function invocations.
+    #[arg(long, env = "VM_MAX_HEAP_BYTES", default_value = "33554432")]
+    max_heap_bytes: usize,
 }
 
 #[tokio::main(flavor = "multi_thread")]
@@ -43,11 +89,18 @@ async fn main() -> Result<()> {
 
     match arg.cmd {
         #[cfg(feature = "http-server")]
-        Cmd::Serve(ServeArg { http_addr }) => serve(http_addr).await,
+        Cmd::Serve(arg) => serve(arg).await,
+        Cmd::Health(arg) => health(arg).await,
+        Cmd::CtxSetup(arg) => ctx_setup(arg).await,
     }
 }
 
-async fn serve(http_addr: String) -> Result<()> {
+async fn serve(arg: ServeArg) -> Result<()> {
+    let ServeArg {
+        sys_admin,
+        http_addr,
+    } = arg;
+
     let http_addr: std::net::SocketAddr = http_addr.parse().map_err(|err| {
         Error::other(err).with_info("failed to parse http server bind address")
     })?;
@@ -57,11 +110,41 @@ async fn serve(http_addr: String) -> Result<()> {
             println!("#vm#listening#{addr:?}#");
         }
     });
-    let server = server::Server::new(
-        obj::ObjMem::create(),
-        js::JsExecDefault::create(),
-    ).await?;
+    let server =
+        server::Server::new(obj::ObjMem::create(), js::JsExecDefault::create())
+            .await?;
+    if !sys_admin.is_empty() {
+        server.inject_sys_admin(sys_admin).await?;
+    }
     http_server::http_server(s, http_addr, server).await
+}
+
+async fn health(arg: HealthArg) -> Result<()> {
+    let HealthArg { url } = arg;
+
+    let client = voidmerge::http_client::HttpClient::new(Default::default());
+    client.health(&url).await
+}
+
+async fn ctx_setup(arg: CtxSetupArg) -> Result<()> {
+    let CtxSetupArg {
+        url,
+        sys_admin,
+        context,
+        ctx_admin,
+        timeout_secs,
+        max_heap_bytes,
+    } = arg;
+
+    let ctx_setup = crate::server::CtxSetup {
+        ctx: context,
+        ctx_admin,
+        timeout_secs,
+        max_heap_bytes,
+    };
+
+    let client = voidmerge::http_client::HttpClient::new(Default::default());
+    client.ctx_setup(&url, &sys_admin, ctx_setup).await
 }
 
 /*

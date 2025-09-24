@@ -274,31 +274,10 @@ impl Obj for ObjMem {
 
 // -- pub(crate) internal types -- //
 
-fn u16_min() -> u16 {
-    u16::MIN
-}
-
-fn u16_max() -> u16 {
-    u16::MAX
-}
-
-fn timeout_s() -> f64 {
-    10.0
-}
-
 #[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct SysSetup {
     #[serde(rename = "x", default, skip_serializing_if = "Vec::is_empty")]
     pub sys_admin: Vec<Arc<str>>,
-}
-
-#[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub(crate) struct CtxSetup {
-    #[serde(rename = "x", default, skip_serializing_if = "Vec::is_empty")]
-    pub ctx_admin: Vec<Arc<str>>,
-
-    #[serde(rename = "t", default = "timeout_s")]
-    pub timeout_s: f64,
 }
 
 #[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -339,7 +318,7 @@ impl ObjWrap {
         };
 
         let sys_setup = if let Ok((sys_setup, _)) = this
-            .get_single(ObjMeta::SYS_PATH_SYS, "s".into(), "setup")
+            .get_single(ObjMeta::SYS_PATH_SYS, "sys".into(), "setup")
             .await
         {
             sys_setup.to_decode()?
@@ -437,12 +416,43 @@ impl ObjWrap {
         };
         self.put(
             ObjMeta::SYS_PATH_SYS,
-            "s".into(),
+            "sys".into(),
             meta,
             Bytes::from_encode(&sys_setup)?,
         )
         .await?;
         *self.sys_setup.lock().unwrap() = sys_setup;
+        Ok(())
+    }
+
+    /// List all configured ctx setups.
+    pub async fn list_ctx_setup(&self) -> Result<Vec<crate::server::CtxSetup>> {
+        let mut out = Vec::new();
+        let prefix = format!("{}/ctx~", ObjMeta::SYS_PATH_SYS).into();
+        let mut page = self.inner.list(prefix).await?;
+        while let Ok(Some(page)) = page.next().await {
+            for path in page {
+                let (sys, ctx, meta) = ObjMeta::with_path(&path)?;
+                out.push(self.get(sys, ctx, meta).await?.to_decode()?);
+            }
+        }
+        Ok(out)
+    }
+
+    /// Set a ctx_setup.
+    pub async fn set_ctx_setup(&self, ctx_setup: crate::server::CtxSetup) -> Result<()> {
+        let meta = ObjMeta {
+            path: "setup".into(),
+            created_secs: sys_now(),
+            ..Default::default()
+        };
+        self.put(
+            ObjMeta::SYS_PATH_SYS,
+            format!("ctx~{}", ctx_setup.ctx).into(),
+            meta,
+            Bytes::from_encode(&ctx_setup)?,
+        )
+        .await?;
         Ok(())
     }
 }

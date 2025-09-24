@@ -1,6 +1,39 @@
 //! A server manages multiple contexts.
 
 use crate::*;
+use std::sync::Arc;
+
+fn p_no(s: &Arc<str>) -> bool {
+    s.is_empty()
+}
+
+fn timeout_secs() -> f64 {
+    10.0
+}
+
+fn max_heap_bytes() -> usize {
+    1024 * 1024 * 32
+}
+
+/// Input parameters for setting up a context.
+#[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CtxSetup {
+    /// The context identifier.
+    #[serde(rename = "c", default, skip_serializing_if = "p_no")]
+    pub ctx: Arc<str>,
+
+    /// Context admin tokens.
+    #[serde(rename = "x", default, skip_serializing_if = "Vec::is_empty")]
+    pub ctx_admin: Vec<Arc<str>>,
+
+    /// Timeout for function invocations.
+    #[serde(rename = "t", default = "timeout_secs")]
+    pub timeout_secs: f64,
+
+    /// Max memory allowed for function invocations.
+    #[serde(rename = "h", default = "max_heap_bytes")]
+    pub max_heap_bytes: usize,
+}
 
 /// A server manages multiple contexts.
 pub struct Server {
@@ -10,18 +43,42 @@ pub struct Server {
 
 impl Server {
     /// Construct a new server.
-    pub async fn new(
-        obj: obj::DynObj,
-        js: js::DynJsExec,
-    ) -> Result<Self> {
+    pub async fn new(obj: obj::DynObj, js: js::DynJsExec) -> Result<Self> {
         Ok(Self {
             obj: obj::ObjWrap::new(obj).await?,
             js,
         })
     }
 
+    /// Inject sysadmin tokens.
+    pub async fn inject_sys_admin(
+        &self,
+        sys_admin: Vec<Arc<str>>,
+    ) -> Result<()> {
+        let mut sys_setup = self.obj.get_sys_setup();
+        let mut set = std::collections::HashSet::new();
+        set.extend(sys_admin);
+        set.extend(std::mem::take(&mut sys_setup.sys_admin));
+        sys_setup.sys_admin = set.into_iter().collect();
+        self.obj.set_sys_setup(sys_setup).await
+    }
+
     /// A general health check that is not context-specific.
-    pub fn health(&self) -> Result<()> {
+    pub async fn health_get(&self) -> Result<()> {
+        Ok(())
+    }
+
+    /// Setup/configure a context.
+    pub async fn ctx_setup_put(&self, token: Arc<str>, setup: CtxSetup) -> Result<()> {
+        if !self.obj.get_sys_setup().sys_admin.contains(&token) {
+            return Err(Error::unauthorized(
+                "only sysadmins can perform a ctx-setup",
+            ));
+        }
+        self.obj.set_ctx_setup(setup).await?;
+
+        println!("{:#?}", self.obj.list_ctx_setup().await?);
+
         Ok(())
     }
 }

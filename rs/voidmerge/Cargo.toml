@@ -28,7 +28,7 @@ clap = { workspace = true, features = [ "derive", "env", "wrap_help" ], optional
 #oqs = { workspace = true, default-features = false, features = [ "std", "ml_dsa" ], optional = true }
 #p256 = { workspace = true, optional = true }
 #rand = { workspace = true }
-#reqwest = { workspace = true }
+reqwest = { workspace = true }
 rmp-serde = { workspace = true }
 rustyscript = { version = "0.12.3", default-features = false, features = ["web_stub", "url", "crypto", "console"] }
 serde = { workspace = true, features = [ "derive", "rc" ] }

@@ -1,8 +1,9 @@
 //! VoidMerge http client.
 
 use crate::*;
-use std::collections::HashMap;
-use types::*;
+use bytes::Bytes;
+//use std::collections::HashMap;
+//use types::*;
 
 /// Configuration for an [HttpClient] instance.
 #[derive(Default)]
@@ -12,25 +13,71 @@ pub struct HttpClientConfig {}
 /// VoidMerge http client.
 pub struct HttpClient {
     client: reqwest::Client,
+    /*
     token: Mutex<Option<Hash>>,
     auth_token: tokio::sync::Semaphore,
     sign: Arc<MultiSign>,
     app_auth_data: Mutex<HashMap<Hash, Value>>,
+    */
 }
 
 impl HttpClient {
     /// Construct a new [HttpClient].
-    pub fn new(config: HttpClientConfig, sign: Arc<MultiSign>) -> Self {
+    pub fn new(config: HttpClientConfig/*, sign: Arc<MultiSign>*/) -> Self {
         let _config = config;
         Self {
             client: reqwest::Client::new(),
+            /*
             token: Default::default(),
             auth_token: tokio::sync::Semaphore::new(1),
             sign,
             app_auth_data: Default::default(),
+            */
         }
     }
 
+    /// Execute a health check at the given url.
+    pub async fn health(&self, url: &str) -> Result<()> {
+        let mut url: reqwest::Url =
+            url.parse().map_err(std::io::Error::other)?;
+        url.set_path("");
+        let res = self
+            .client
+            .get(url)
+            .send()
+            .await
+            .map_err(std::io::Error::other)?;
+        if res.error_for_status_ref().is_err() {
+            return Err(std::io::Error::other(
+                res.text().await.map_err(std::io::Error::other)?,
+            ));
+        }
+        Ok(())
+    }
+
+    /// Setup/configure a context on a VoidMerge server.
+    pub async fn ctx_setup(&self, url: &str, token: &str, ctx_setup: crate::server::CtxSetup) -> Result<()> {
+        let mut url: reqwest::Url =
+            url.parse().map_err(std::io::Error::other)?;
+        url.set_path("ctx-setup");
+        let token = format!("Bearer {}", &token);
+        let res = self
+            .client
+            .put(url)
+            .header("Authorization", token)
+            .body(Bytes::from_encode(&ctx_setup)?)
+            .send()
+            .await
+            .map_err(std::io::Error::other)?;
+        if res.error_for_status_ref().is_err() {
+            return Err(std::io::Error::other(
+                res.text().await.map_err(std::io::Error::other)?,
+            ));
+        }
+        Ok(())
+    }
+
+    /*
     /// Set an explicit api token to use.
     pub fn set_api_token(&self, token: Hash) {
         *self.token.lock().unwrap() = Some(token);
@@ -244,4 +291,5 @@ impl HttpClient {
         })
         .await
     }
+    */
 }
