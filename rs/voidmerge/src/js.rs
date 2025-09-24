@@ -1,8 +1,60 @@
 //! Javascript execution.
 
 use crate::*;
+use bytes::Bytes;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+
+/// Input to a javascript execution.
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum JsRequest {
+    /// yo
+    ObjCheckReq {},
+    /// Incoming function request.
+    FnReq {
+        /// The method ("GET" or "PUT").
+        method: String,
+        /// The request url.
+        url: String,
+        /// The body content.
+        body: Option<Bytes>,
+        /// Any sent headers.
+        headers: HashMap<String, String>,
+    },
+}
+
+fn status() -> f64 {
+    200.0
+}
+
+/// Output from a javascript execution.
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum JsResponse {
+    /// yo
+    ObjCheckResOk {},
+    /// Outgoing function response.
+    FnResOk {
+        /// The status code to respond with.
+        #[serde(default = "status")]
+        status: f64,
+        /// The body content.
+        #[serde(default)]
+        body: Bytes,
+        /// Any headers to send.
+        #[serde(default)]
+        headers: HashMap<String, String>,
+    },
+}
 
 static MAX_THREADS: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
 
@@ -46,8 +98,8 @@ pub trait JsExec: 'static + Send + Sync {
     fn exec(
         &self,
         setup: JsSetup,
-        input: serde_json::Value,
-    ) -> BoxFut<'_, Result<serde_json::Value>>;
+        request: JsRequest,
+    ) -> BoxFut<'_, Result<JsResponse>>;
 }
 
 /// Dyn [JsExec] type.
@@ -68,10 +120,10 @@ impl JsExec for JsExecDefault {
     fn exec(
         &self,
         setup: JsSetup,
-        input: serde_json::Value,
-    ) -> BoxFut<'_, Result<serde_json::Value>> {
+        request: JsRequest,
+    ) -> BoxFut<'_, Result<JsResponse>> {
         Box::pin(
-            async move { JS.get_or_init(Js::new).exec(setup, input).await },
+            async move { JS.get_or_init(Js::new).exec(setup, request).await },
         )
     }
 }
@@ -94,8 +146,8 @@ impl Js {
     pub async fn exec(
         &self,
         setup: JsSetup,
-        input: serde_json::Value,
-    ) -> Result<serde_json::Value> {
+        request: JsRequest,
+    ) -> Result<JsResponse> {
         let mut found = self.pool.lock().unwrap().get_thread(&setup);
 
         if found.is_none() {
@@ -116,7 +168,7 @@ impl Js {
 
         let thread = found.unwrap();
 
-        let out = thread.exec(setup.clone(), input).await;
+        let out = thread.exec(setup.clone(), request).await;
 
         if thread.is_ready() {
             self.pool.lock().unwrap().put_thread(setup, thread);
@@ -201,8 +253,8 @@ enum Cmd {
     Kill,
     Exec {
         setup: JsSetup,
-        input: serde_json::Value,
-        output: tokio::sync::oneshot::Sender<Result<serde_json::Value>>,
+        request: JsRequest,
+        output: tokio::sync::oneshot::Sender<Result<JsResponse>>,
     },
 }
 
@@ -237,15 +289,15 @@ impl JsThread {
     pub async fn exec(
         &self,
         setup: JsSetup,
-        input: serde_json::Value,
-    ) -> Result<serde_json::Value> {
+        request: JsRequest,
+    ) -> Result<JsResponse> {
         let (output, r) = tokio::sync::oneshot::channel();
         self.cmd_send
             .as_ref()
             .unwrap()
             .send(Cmd::Exec {
                 setup,
-                input,
+                request,
                 output,
             })
             .await
@@ -278,7 +330,7 @@ impl JsThread {
             let on_drop = on_drop;
 
             let mut cur_setup;
-            let mut cur_input;
+            let mut cur_request;
             let mut cur_output;
 
             match cmd_recv.blocking_recv() {
@@ -286,11 +338,11 @@ impl JsThread {
                 Some(Cmd::Kill) => return,
                 Some(Cmd::Exec {
                     setup,
-                    input,
+                    request,
                     output,
                 }) => {
                     cur_setup = setup;
-                    cur_input = input;
+                    cur_request = request;
                     cur_output = output;
                 }
             }
@@ -337,7 +389,7 @@ impl JsThread {
                 }
 
                 loop {
-                    let res: Result<serde_json::Value> = match rust
+                    let res: Result<JsResponse> = match rust
                         .tokio_runtime()
                         .block_on(async {
                             tokio::time::timeout(
@@ -345,7 +397,7 @@ impl JsThread {
                                 rust.call_function_async(
                                     None,
                                     "vm",
-                                    rustyscript::json_args!(cur_input),
+                                    rustyscript::json_args!(cur_request),
                                 ),
                             )
                             .await
@@ -384,12 +436,12 @@ impl JsThread {
                         Some(Cmd::Kill) => return,
                         Some(Cmd::Exec {
                             setup,
-                            input,
+                            request,
                             output,
                         }) => {
                             let reset = cur_setup != setup;
                             cur_setup = setup;
-                            cur_input = input;
+                            cur_request = request;
                             cur_output = output;
                             if reset {
                                 println!("reset");
@@ -406,5 +458,41 @@ impl JsThread {
             thread: Some(thread),
             cmd_send: Some(cmd_send),
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn js_simple() {
+        let setup = JsSetup {
+            code: "
+async function vm(req) {
+    if (req.type === 'fnReq') {
+        return {
+            type: 'fnResOk',
+        };
+    } else {
+        throw new Error(`invalid type: ${req.type}`);
+    }
+}
+"
+            .into(),
+            ..Default::default()
+        };
+
+        let req = JsRequest::FnReq {
+            method: "GET".into(),
+            url: "http://www.www.www".into(),
+            body: None,
+            headers: Default::default(),
+        };
+
+        let js = JsExecDefault::create();
+
+        let res = js.exec(setup, req).await.unwrap();
+        println!("got: {res:#?}");
     }
 }

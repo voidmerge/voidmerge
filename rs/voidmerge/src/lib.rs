@@ -29,7 +29,27 @@ fn sys_now() -> f64 {
         .as_secs_f64()
 }
 
+/// Check for safe characters to be used in contexts / paths / etc.
+fn safe_str(s: &str) -> Result<()> {
+    for b in s.as_bytes() {
+        if (*b >= b'a' && *b <= b'z')
+            || (*b >= b'A' && *b <= b'Z')
+            || (*b >= b'0' && *b <= b'9')
+            || *b == b'-'
+            || *b == b'_'
+            || *b == b'~'
+        {
+            continue;
+        }
+        return Err(Error::other(
+            "Invalid string (can only contain [a-z], [A-Z], [0-9], '-', '_', and '~')",
+        ));
+    }
+    Ok(())
+}
+
 pub mod bytes_ext;
+pub(crate) mod ctx;
 pub mod http_client;
 #[cfg(feature = "http-server")]
 pub mod http_server;

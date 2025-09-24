@@ -38,6 +38,38 @@ impl axum::response::IntoResponse for ErrTx {
     }
 }
 
+impl axum::response::IntoResponse for crate::js::JsResponse {
+    fn into_response(self) -> axum::response::Response {
+        match self {
+            crate::js::JsResponse::FnResOk {
+                status,
+                body,
+                headers,
+                ..
+            } => {
+                let mut bld =
+                    axum::response::Response::builder().status(status as u16);
+
+                {
+                    let hdr = bld.headers_mut().unwrap();
+                    for (k, v) in headers.iter() {
+                        if let Ok(v) = axum::http::HeaderValue::from_str(v) {
+                            if let Ok(k) =
+                                axum::http::HeaderName::from_bytes(k.as_bytes())
+                            {
+                                hdr.insert(k, v);
+                            }
+                        }
+                    }
+                }
+
+                bld.body(axum::body::Body::from(body)).unwrap()
+            }
+            _ => unreachable!(),
+        }
+    }
+}
+
 type AxumResult = std::result::Result<axum::response::Response, ErrTx>;
 
 /// Execute a VoidMerge http server process.
@@ -55,11 +87,19 @@ pub async fn http_server(
         .allow_headers([axum::http::header::AUTHORIZATION])
         .allow_origin(tower_http::cors::Any);
 
-    let app: axum::Router<Arc<State>> =
-        axum::Router::new()
-            .route("/", axum::routing::get(route_health_get))
-            .route("/ctx-setup", axum::routing::put(route_ctx_setup_put))
-        ;
+    let app: axum::Router<Arc<State>> = axum::Router::new()
+        .route("/", axum::routing::get(route_health_get))
+        .route("/ctx-setup", axum::routing::put(route_ctx_setup_put))
+        .route(
+            "/{ctx}/_vm_/config",
+            axum::routing::put(route_ctx_config_put),
+        )
+        .route("/{ctx}/{*rest}", axum::routing::get(route_fn_get))
+        .route("/{ctx}/", axum::routing::get(route_fn_get_def))
+        .route("/{ctx}", axum::routing::get(route_fn_get_def))
+        .route("/{ctx}/{*rest}", axum::routing::put(route_fn_put))
+        .route("/{ctx}/", axum::routing::put(route_fn_put_def))
+        .route("/{ctx}", axum::routing::put(route_fn_put_def));
 
     let app = app
         .layer(cors)
@@ -111,9 +151,130 @@ async fn route_ctx_setup_put(
     payload: bytes::Bytes,
 ) -> AxumResult {
     let token = auth_token(&headers);
-    state.server.ctx_setup_put(token, payload.to_decode()?).await?;
+    state
+        .server
+        .ctx_setup_put(token, payload.to_decode()?)
+        .await?;
     Ok("Ok".into_response())
 }
+
+async fn route_ctx_config_put(
+    headers: axum::http::HeaderMap,
+    axum::extract::ConnectInfo(_addr): axum::extract::ConnectInfo<
+        std::net::SocketAddr,
+    >,
+    axum::extract::State(state): axum::extract::State<Arc<State>>,
+    payload: bytes::Bytes,
+) -> AxumResult {
+    let token = auth_token(&headers);
+    state
+        .server
+        .ctx_config_put(token, payload.to_decode()?)
+        .await?;
+    Ok("Ok".into_response())
+}
+
+fn hdr(m: &axum::http::HeaderMap) -> std::collections::HashMap<String, String> {
+    m.into_iter()
+        .map(|(k, v)| {
+            (
+                k.as_str().to_string(),
+                String::from_utf8_lossy(v.as_bytes()).to_string(),
+            )
+        })
+        .collect()
+}
+
+async fn route_fn_get(
+    headers: axum::http::HeaderMap,
+    axum::extract::Path((ctx, rest)): axum::extract::Path<(String, String)>,
+    axum::extract::ConnectInfo(_addr): axum::extract::ConnectInfo<
+        std::net::SocketAddr,
+    >,
+    axum::extract::State(state): axum::extract::State<Arc<State>>,
+) -> AxumResult {
+    let req = crate::js::JsRequest::FnReq {
+        method: "GET".into(),
+        url: rest.into(),
+        body: None,
+        headers: hdr(&headers),
+    };
+    Ok(state.server.fn_req(ctx.into(), req).await?.into_response())
+}
+
+async fn route_fn_get_def(
+    headers: axum::http::HeaderMap,
+    axum::extract::Path(ctx): axum::extract::Path<String>,
+    axum::extract::ConnectInfo(_addr): axum::extract::ConnectInfo<
+        std::net::SocketAddr,
+    >,
+    axum::extract::State(state): axum::extract::State<Arc<State>>,
+) -> AxumResult {
+    let req = crate::js::JsRequest::FnReq {
+        method: "GET".into(),
+        url: "".into(),
+        body: None,
+        headers: hdr(&headers),
+    };
+    Ok(state.server.fn_req(ctx.into(), req).await?.into_response())
+}
+
+async fn route_fn_put(
+    headers: axum::http::HeaderMap,
+    axum::extract::Path((ctx, rest)): axum::extract::Path<(String, String)>,
+    axum::extract::ConnectInfo(_addr): axum::extract::ConnectInfo<
+        std::net::SocketAddr,
+    >,
+    axum::extract::State(state): axum::extract::State<Arc<State>>,
+    payload: bytes::Bytes,
+) -> AxumResult {
+    let req = crate::js::JsRequest::FnReq {
+        method: "PUT".into(),
+        url: rest.into(),
+        body: Some(payload),
+        headers: hdr(&headers),
+    };
+    Ok(state.server.fn_req(ctx.into(), req).await?.into_response())
+}
+
+async fn route_fn_put_def(
+    headers: axum::http::HeaderMap,
+    axum::extract::Path(ctx): axum::extract::Path<String>,
+    axum::extract::ConnectInfo(_addr): axum::extract::ConnectInfo<
+        std::net::SocketAddr,
+    >,
+    axum::extract::State(state): axum::extract::State<Arc<State>>,
+    payload: bytes::Bytes,
+) -> AxumResult {
+    let req = crate::js::JsRequest::FnReq {
+        method: "PUT".into(),
+        url: "".into(),
+        body: Some(payload),
+        headers: hdr(&headers),
+    };
+    Ok(state.server.fn_req(ctx.into(), req).await?.into_response())
+}
+
+/*
+async fn route_fn(
+    method: axum::http::Method,
+    headers: axum::http::HeaderMap,
+    axum::extract::ConnectInfo(_addr): axum::extract::ConnectInfo<
+        std::net::SocketAddr,
+    >,
+    axum::extract::State(_state): axum::extract::State<Arc<State>>,
+    _payload: bytes::Bytes,
+) -> AxumResult {
+    println!("fn {method}");
+    /*
+    state
+        .server
+        .ctx_setup_put(token, payload.to_decode()?)
+        .await?;
+    */
+    Ok("Ok".into_response())
+}
+*/
 
 /*
 use crate::*;

@@ -17,8 +17,11 @@ enum Cmd {
     /// Execute a health check against a server.
     Health(HealthArg),
 
-    /// Setup/configure a context.
+    /// Setup a context.
     CtxSetup(CtxSetupArg),
+
+    /// Configure a context.
+    CtxConfig(CtxConfigArg),
 }
 
 #[cfg(feature = "http-server")]
@@ -48,24 +51,52 @@ struct CtxSetupArg {
     url: String,
 
     /// The sys admin api token to use.
-    #[arg(long, env = "VM_SYS_ADMIN")]
-    sys_admin: Arc<str>,
+    #[arg(long, env = "VM_TOKEN")]
+    token: Arc<str>,
 
     /// The context to configure.
-    #[arg(long, env = "VM_CONTEXT")]
+    #[arg(long, env = "VM_CTX")]
     context: Arc<str>,
+
+    /// If this boolean is true, other properties will be ignored,
+    /// and the context will be deleted.
+    #[arg(long, env = "VM_CTX_DELETE")]
+    pub delete: bool,
 
     /// CtxAdmin tokens to use for the context.
     #[arg(long, env = "VM_CTX_ADMIN_TOKENS", value_delimiter = ',')]
     ctx_admin: Vec<Arc<str>>,
 
     /// Timeout for function invocations.
-    #[arg(long, env = "VM_TIMEOUT_SECS", default_value = "10.0")]
+    #[arg(long, env = "VM_CTX_TIMEOUT_SECS", default_value = "10.0")]
     timeout_secs: f64,
 
     /// Max memory allowed for function invocations.
-    #[arg(long, env = "VM_MAX_HEAP_BYTES", default_value = "33554432")]
+    #[arg(long, env = "VM_CTX_MAX_HEAP_BYTES", default_value = "33554432")]
     max_heap_bytes: usize,
+}
+
+#[derive(Debug, clap::Args)]
+struct CtxConfigArg {
+    /// The server url.
+    #[arg(long, env = "VM_URL")]
+    url: String,
+
+    /// The ctx admin api token to use.
+    #[arg(long, env = "VM_TOKEN")]
+    token: Arc<str>,
+
+    /// The context to configure.
+    #[arg(long, env = "VM_CTX")]
+    context: Arc<str>,
+
+    /// CtxAdmin tokens to use for the context.
+    #[arg(long, env = "VM_CTX_ADMIN_TOKENS", value_delimiter = ',')]
+    ctx_admin: Vec<Arc<str>>,
+
+    /// Javascript code for the context.
+    #[arg(long, env = "VM_CTX_CODE", default_value = "")]
+    code: Arc<str>,
 }
 
 #[tokio::main(flavor = "multi_thread")]
@@ -92,6 +123,7 @@ async fn main() -> Result<()> {
         Cmd::Serve(arg) => serve(arg).await,
         Cmd::Health(arg) => health(arg).await,
         Cmd::CtxSetup(arg) => ctx_setup(arg).await,
+        Cmd::CtxConfig(arg) => ctx_config(arg).await,
     }
 }
 
@@ -129,8 +161,9 @@ async fn health(arg: HealthArg) -> Result<()> {
 async fn ctx_setup(arg: CtxSetupArg) -> Result<()> {
     let CtxSetupArg {
         url,
-        sys_admin,
+        token,
         context,
+        delete,
         ctx_admin,
         timeout_secs,
         max_heap_bytes,
@@ -138,13 +171,33 @@ async fn ctx_setup(arg: CtxSetupArg) -> Result<()> {
 
     let ctx_setup = crate::server::CtxSetup {
         ctx: context,
+        delete,
         ctx_admin,
         timeout_secs,
         max_heap_bytes,
     };
 
     let client = voidmerge::http_client::HttpClient::new(Default::default());
-    client.ctx_setup(&url, &sys_admin, ctx_setup).await
+    client.ctx_setup(&url, &token, ctx_setup).await
+}
+
+async fn ctx_config(arg: CtxConfigArg) -> Result<()> {
+    let CtxConfigArg {
+        url,
+        token,
+        context,
+        ctx_admin,
+        code,
+    } = arg;
+
+    let ctx_config = crate::server::CtxConfig {
+        ctx: context,
+        ctx_admin,
+        code,
+    };
+
+    let client = voidmerge::http_client::HttpClient::new(Default::default());
+    client.ctx_config(&url, &token, ctx_config).await
 }
 
 /*

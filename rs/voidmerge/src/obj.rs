@@ -57,11 +57,17 @@ pub struct ObjMeta {
 }
 
 impl ObjMeta {
-    /// System path: "s" for system.
-    pub(crate) const SYS_PATH_SYS: &'static str = "s";
+    /// System path: "s" for system setup.
+    pub(crate) const SYS_SETUP: &'static str = "s";
+
+    /// System path: "x" for context setup.
+    pub(crate) const SYS_CTX_SETUP: &'static str = "x";
+
+    /// System path: "d" for context config.
+    pub(crate) const SYS_CTX_CONFIG: &'static str = "d";
 
     /// System path: "c" for context.
-    pub(crate) const SYS_PATH_CTX: &'static str = "c";
+    pub(crate) const SYS_CTX: &'static str = "c";
 
     /// Parse an ObjMeta from a full system path.
     pub(crate) fn with_path(
@@ -74,12 +80,16 @@ impl ObjMeta {
         let mut iter = path.split('/');
 
         if let Some(s) = iter.next() {
-            if s == Self::SYS_PATH_SYS {
-                sys_prefix = Self::SYS_PATH_SYS;
-            } else if s == Self::SYS_PATH_CTX {
-                sys_prefix = Self::SYS_PATH_CTX;
-            } else {
-                return Err(Error::other("bad object store path (sys_prefix)"));
+            match s {
+                Self::SYS_SETUP => sys_prefix = Self::SYS_SETUP,
+                Self::SYS_CTX_SETUP => sys_prefix = Self::SYS_CTX_SETUP,
+                Self::SYS_CTX_CONFIG => sys_prefix = Self::SYS_CTX_CONFIG,
+                Self::SYS_CTX => sys_prefix = Self::SYS_CTX,
+                _ => {
+                    return Err(Error::other(
+                        "bad object store path (sys_prefix)",
+                    ));
+                }
             }
         } else {
             return Err(Error::other("bad object store path (sys_prefix)"));
@@ -274,18 +284,6 @@ impl Obj for ObjMem {
 
 // -- pub(crate) internal types -- //
 
-#[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub(crate) struct SysSetup {
-    #[serde(rename = "x", default, skip_serializing_if = "Vec::is_empty")]
-    pub sys_admin: Vec<Arc<str>>,
-}
-
-#[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub(crate) struct CtxConfig {
-    #[serde(rename = "a", default, skip_serializing_if = "HashMap::is_empty")]
-    pub assets: HashMap<Arc<str>, Bytes>,
-}
-
 pub(crate) struct ObjWrapListPager(DynObjListPager);
 
 impl ObjWrapListPager {
@@ -304,29 +302,15 @@ impl ObjWrapListPager {
 }
 
 /// Object store type.
+#[derive(Clone)]
 pub(crate) struct ObjWrap {
     inner: DynObj,
-    sys_setup: Mutex<SysSetup>,
 }
 
 impl ObjWrap {
     /// Constructor.
     pub async fn new(obj: DynObj) -> Result<Self> {
-        let this = Self {
-            inner: obj,
-            sys_setup: Default::default(),
-        };
-
-        let sys_setup = if let Ok((sys_setup, _)) = this
-            .get_single(ObjMeta::SYS_PATH_SYS, "sys".into(), "setup")
-            .await
-        {
-            sys_setup.to_decode()?
-        } else {
-            SysSetup::default()
-        };
-
-        *this.sys_setup.lock().unwrap() = sys_setup;
+        let this = Self { inner: obj };
 
         Ok(this)
     }
@@ -369,16 +353,7 @@ impl ObjWrap {
         if meta.path.len() > 512 {
             return Err(Error::other("path too long"));
         }
-        const OK: &str =
-            "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_~";
-        for c in meta.path.chars() {
-            if !OK.contains(c) {
-                return Err(Error::other(format!(
-                    "invalid characters in path (azAZ09-_~): {}",
-                    &meta.path
-                )));
-            }
-        }
+        safe_str(&meta.path).map_err(|err| err.with_info("invalid path"))?;
         let path = meta.sys_path(sys_prefix, ctx).into();
         self.inner.put(path, obj).await
     }
@@ -403,54 +378,111 @@ impl ObjWrap {
     }
 
     /// Get the sys_setup.
-    pub fn get_sys_setup(&self) -> SysSetup {
-        self.sys_setup.lock().unwrap().clone()
+    pub async fn get_sys_setup(&self) -> Result<crate::server::SysSetup> {
+        use crate::server::SysSetup;
+
+        if let Ok((sys_setup, _)) = self
+            .get_single(ObjMeta::SYS_SETUP, ObjMeta::SYS_SETUP.into(), "setup")
+            .await
+        {
+            sys_setup.to_decode()
+        } else {
+            Ok(SysSetup::default())
+        }
     }
 
     /// Set the sys_setup.
-    pub async fn set_sys_setup(&self, sys_setup: SysSetup) -> Result<()> {
+    pub async fn set_sys_setup(
+        &self,
+        sys_setup: crate::server::SysSetup,
+    ) -> Result<()> {
         let meta = ObjMeta {
             path: "setup".into(),
             created_secs: sys_now(),
             ..Default::default()
         };
         self.put(
-            ObjMeta::SYS_PATH_SYS,
-            "sys".into(),
+            ObjMeta::SYS_SETUP,
+            ObjMeta::SYS_SETUP.into(),
             meta,
             Bytes::from_encode(&sys_setup)?,
         )
         .await?;
-        *self.sys_setup.lock().unwrap() = sys_setup;
         Ok(())
     }
 
-    /// List all configured ctx setups.
-    pub async fn list_ctx_setup(&self) -> Result<Vec<crate::server::CtxSetup>> {
-        let mut out = Vec::new();
-        let prefix = format!("{}/ctx~", ObjMeta::SYS_PATH_SYS).into();
+    /// List all configured ctx setups and configs.
+    pub async fn list_ctx_all(
+        &self,
+    ) -> Result<
+        HashMap<Arc<str>, (crate::server::CtxSetup, crate::server::CtxConfig)>,
+    > {
+        use crate::server::{CtxConfig, CtxSetup};
+
+        let mut out: HashMap<Arc<str>, (CtxSetup, CtxConfig)> = HashMap::new();
+
+        let prefix = format!("{}/", ObjMeta::SYS_CTX_SETUP).into();
         let mut page = self.inner.list(prefix).await?;
         while let Ok(Some(page)) = page.next().await {
             for path in page {
                 let (sys, ctx, meta) = ObjMeta::with_path(&path)?;
-                out.push(self.get(sys, ctx, meta).await?.to_decode()?);
+                let setup: CtxSetup =
+                    self.get(sys, ctx, meta).await?.to_decode()?;
+                let ctx = setup.ctx.clone();
+                out.entry(ctx).or_default().0 = setup;
             }
         }
+
+        let prefix = format!("{}/", ObjMeta::SYS_CTX_CONFIG).into();
+        let mut page = self.inner.list(prefix).await?;
+        while let Ok(Some(page)) = page.next().await {
+            for path in page {
+                let (sys, ctx, meta) = ObjMeta::with_path(&path)?;
+                let config: CtxConfig =
+                    self.get(sys, ctx, meta).await?.to_decode()?;
+                let ctx = config.ctx.clone();
+                out.entry(ctx).or_default().1 = config;
+            }
+        }
+
         Ok(out)
     }
 
     /// Set a ctx_setup.
-    pub async fn set_ctx_setup(&self, ctx_setup: crate::server::CtxSetup) -> Result<()> {
+    pub async fn set_ctx_setup(
+        &self,
+        ctx_setup: crate::server::CtxSetup,
+    ) -> Result<()> {
         let meta = ObjMeta {
             path: "setup".into(),
             created_secs: sys_now(),
             ..Default::default()
         };
         self.put(
-            ObjMeta::SYS_PATH_SYS,
-            format!("ctx~{}", ctx_setup.ctx).into(),
+            ObjMeta::SYS_CTX_SETUP,
+            ctx_setup.ctx.clone(),
             meta,
             Bytes::from_encode(&ctx_setup)?,
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// Set a ctx_config.
+    pub async fn set_ctx_config(
+        &self,
+        ctx_config: crate::server::CtxConfig,
+    ) -> Result<()> {
+        let meta = ObjMeta {
+            path: "config".into(),
+            created_secs: sys_now(),
+            ..Default::default()
+        };
+        self.put(
+            ObjMeta::SYS_CTX_CONFIG,
+            ctx_config.ctx.clone(),
+            meta,
+            Bytes::from_encode(&ctx_config)?,
         )
         .await?;
         Ok(())
@@ -468,7 +500,7 @@ mod test {
         let ctx: Arc<str> = "AAAA".into();
 
         o.put(
-            ObjMeta::SYS_PATH_SYS,
+            ObjMeta::SYS_SETUP,
             ctx.clone(),
             ObjMeta {
                 path: "test".into(),
@@ -482,7 +514,7 @@ mod test {
 
         let mut found = Vec::new();
         let mut p = o
-            .list(ObjMeta::SYS_PATH_SYS, ctx.clone(), "t".into())
+            .list(ObjMeta::SYS_SETUP, ctx.clone(), "t".into())
             .await
             .unwrap();
         while let Ok(Some(mut v)) = p.next().await {
@@ -490,10 +522,7 @@ mod test {
         }
         let found = found.remove(0);
 
-        let got = o
-            .get(ObjMeta::SYS_PATH_SYS, ctx.clone(), found)
-            .await
-            .unwrap();
+        let got = o.get(ObjMeta::SYS_SETUP, ctx.clone(), found).await.unwrap();
 
         assert_eq!(b"hello", got.as_ref());
     }

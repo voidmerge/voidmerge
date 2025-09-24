@@ -1,7 +1,8 @@
 //! A server manages multiple contexts.
 
 use crate::*;
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 fn p_no(s: &Arc<str>) -> bool {
     s.is_empty()
@@ -15,12 +16,28 @@ fn max_heap_bytes() -> usize {
     1024 * 1024 * 32
 }
 
-/// Input parameters for setting up a context.
+fn is_false(b: &bool) -> bool {
+    !b
+}
+
+/// System setup information;
 #[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub(crate) struct SysSetup {
+    #[serde(rename = "x", default, skip_serializing_if = "Vec::is_empty")]
+    pub sys_admin: Vec<Arc<str>>,
+}
+
+/// Context setup information.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CtxSetup {
     /// The context identifier.
     #[serde(rename = "c", default, skip_serializing_if = "p_no")]
     pub ctx: Arc<str>,
+
+    /// If this boolean is true, other properties will be ignored,
+    /// and the context will be deleted.
+    #[serde(rename = "d", default, skip_serializing_if = "is_false")]
+    pub delete: bool,
 
     /// Context admin tokens.
     #[serde(rename = "x", default, skip_serializing_if = "Vec::is_empty")]
@@ -35,19 +52,113 @@ pub struct CtxSetup {
     pub max_heap_bytes: usize,
 }
 
+impl Default for CtxSetup {
+    fn default() -> Self {
+        Self {
+            ctx: Default::default(),
+            delete: false,
+            ctx_admin: Default::default(),
+            timeout_secs: timeout_secs(),
+            max_heap_bytes: max_heap_bytes(),
+        }
+    }
+}
+
+impl CtxSetup {
+    fn check(&self) -> Result<()> {
+        safe_str(&self.ctx)?;
+        for token in self.ctx_admin.iter() {
+            safe_str(token)?;
+        }
+        Ok(())
+    }
+}
+
+/// Context config information.
+#[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CtxConfig {
+    /// The context identifier.
+    #[serde(rename = "c", default, skip_serializing_if = "p_no")]
+    pub ctx: Arc<str>,
+
+    /// Context admin tokens.
+    #[serde(rename = "x", default, skip_serializing_if = "Vec::is_empty")]
+    pub ctx_admin: Vec<Arc<str>>,
+
+    /// Javascript code for the context.
+    #[serde(rename = "l", default, skip_serializing_if = "p_no")]
+    pub code: Arc<str>,
+}
+
+impl CtxConfig {
+    fn check(&self) -> Result<()> {
+        safe_str(&self.ctx)?;
+        for token in self.ctx_admin.iter() {
+            safe_str(token)?;
+        }
+        Ok(())
+    }
+}
+
 /// A server manages multiple contexts.
 pub struct Server {
     obj: obj::ObjWrap,
     js: js::DynJsExec,
+    sys_setup: Mutex<SysSetup>,
+    ctx_setup: Mutex<HashMap<Arc<str>, (CtxSetup, CtxConfig)>>,
+    ctx_map: Mutex<HashMap<Arc<str>, Arc<crate::ctx::Ctx>>>,
 }
 
 impl Server {
     /// Construct a new server.
     pub async fn new(obj: obj::DynObj, js: js::DynJsExec) -> Result<Self> {
-        Ok(Self {
-            obj: obj::ObjWrap::new(obj).await?,
+        let obj = obj::ObjWrap::new(obj).await?;
+
+        let sys_setup = obj.get_sys_setup().await?;
+
+        let ctx_setup = obj.list_ctx_all().await?;
+
+        let this = Self {
+            obj,
             js,
-        })
+            sys_setup: Mutex::new(sys_setup),
+            ctx_setup: Mutex::new(ctx_setup.clone()),
+            ctx_map: Mutex::new(HashMap::new()),
+        };
+
+        for (ctx, (setup, config)) in ctx_setup {
+            this.setup_context(ctx, setup, config)?;
+        }
+
+        Ok(this)
+    }
+
+    fn setup_context(
+        &self,
+        ctx: Arc<str>,
+        setup: CtxSetup,
+        config: CtxConfig,
+    ) -> Result<()> {
+        let obj = self.obj.clone();
+        let js = self.js.clone();
+        self.ctx_map.lock().unwrap().insert(
+            ctx,
+            Arc::new(crate::ctx::Ctx::new(setup, config, obj, js)?),
+        );
+        Ok(())
+    }
+
+    fn get_sys_setup(&self) -> SysSetup {
+        self.sys_setup.lock().unwrap().clone()
+    }
+
+    fn get_ctx_setup(&self, ctx: &str) -> Result<(CtxSetup, CtxConfig)> {
+        self.ctx_setup
+            .lock()
+            .unwrap()
+            .get(ctx)
+            .cloned()
+            .ok_or_else(|| Error::not_found(format!("no context: {ctx}")))
     }
 
     /// Inject sysadmin tokens.
@@ -55,12 +166,17 @@ impl Server {
         &self,
         sys_admin: Vec<Arc<str>>,
     ) -> Result<()> {
-        let mut sys_setup = self.obj.get_sys_setup();
+        for token in sys_admin.iter() {
+            safe_str(&token)?;
+        }
+        let mut sys_setup = self.get_sys_setup();
         let mut set = std::collections::HashSet::new();
         set.extend(sys_admin);
         set.extend(std::mem::take(&mut sys_setup.sys_admin));
         sys_setup.sys_admin = set.into_iter().collect();
-        self.obj.set_sys_setup(sys_setup).await
+        self.obj.set_sys_setup(sys_setup.clone()).await?;
+        *self.sys_setup.lock().unwrap() = sys_setup;
+        Ok(())
     }
 
     /// A general health check that is not context-specific.
@@ -68,18 +184,84 @@ impl Server {
         Ok(())
     }
 
-    /// Setup/configure a context.
-    pub async fn ctx_setup_put(&self, token: Arc<str>, setup: CtxSetup) -> Result<()> {
-        if !self.obj.get_sys_setup().sys_admin.contains(&token) {
+    /// Setup a context.
+    pub async fn ctx_setup_put(
+        &self,
+        token: Arc<str>,
+        setup: CtxSetup,
+    ) -> Result<()> {
+        if !self.get_sys_setup().sys_admin.contains(&token) {
             return Err(Error::unauthorized(
                 "only sysadmins can perform a ctx-setup",
             ));
         }
-        self.obj.set_ctx_setup(setup).await?;
 
-        println!("{:#?}", self.obj.list_ctx_setup().await?);
+        setup.check()?;
+
+        self.obj.set_ctx_setup(setup.clone()).await?;
+
+        let (ctx, (ctx_setup, ctx_config)) = {
+            let ctx = setup.ctx.clone();
+            let mut lock = self.ctx_setup.lock().unwrap();
+            let r = lock.entry(ctx.clone()).or_default();
+            r.0 = setup;
+            (ctx, r.clone())
+        };
+
+        self.setup_context(ctx, ctx_setup, ctx_config)?;
 
         Ok(())
+    }
+
+    /// Configure a context.
+    pub async fn ctx_config_put(
+        &self,
+        token: Arc<str>,
+        config: CtxConfig,
+    ) -> Result<()> {
+        let (cur_setup, cur_config) = self.get_ctx_setup(&config.ctx)?;
+
+        if !self.get_sys_setup().sys_admin.contains(&token) {
+            // If we are not a sys admin, we must be a ctx admin
+            if !cur_setup.ctx_admin.contains(&token)
+                && !cur_config.ctx_admin.contains(&token)
+            {
+                return Err(Error::unauthorized(
+                    "only sysadmins and ctxadmins can perform a ctx-config",
+                ));
+            }
+        }
+
+        config.check()?;
+
+        self.obj.set_ctx_config(config.clone()).await?;
+
+        let (ctx, (ctx_setup, ctx_config)) = {
+            let ctx = config.ctx.clone();
+            let mut lock = self.ctx_setup.lock().unwrap();
+            let r = lock.entry(ctx.clone()).or_default();
+            r.1 = config;
+            (ctx, r.clone())
+        };
+
+        self.setup_context(ctx, ctx_setup, ctx_config)?;
+
+        Ok(())
+    }
+
+    /// Process a function request.
+    pub async fn fn_req(
+        &self,
+        ctx: Arc<str>,
+        req: crate::js::JsRequest,
+    ) -> Result<crate::js::JsResponse> {
+        let c = match self.ctx_map.lock().unwrap().get(&ctx) {
+            None => {
+                return Err(Error::not_found(format!("invalid context: {ctx}")));
+            }
+            Some(c) => c.clone(),
+        };
+        c.fn_req(req).await
     }
 }
 
