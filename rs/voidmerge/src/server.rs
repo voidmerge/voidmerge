@@ -20,9 +20,10 @@ fn is_false(b: &bool) -> bool {
     !b
 }
 
-/// System setup information;
+/// System setup information.
 #[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub(crate) struct SysSetup {
+pub struct SysSetup {
+    /// System admin tokens.
     #[serde(rename = "x", default, skip_serializing_if = "Vec::is_empty")]
     pub sys_admin: Vec<Arc<str>>,
 }
@@ -142,8 +143,8 @@ impl Server {
         let obj = self.obj.clone();
         let js = self.js.clone();
         self.ctx_map.lock().unwrap().insert(
-            ctx,
-            Arc::new(crate::ctx::Ctx::new(setup, config, obj, js)?),
+            ctx.clone(),
+            Arc::new(crate::ctx::Ctx::new(ctx, setup, config, obj, js)?),
         );
         Ok(())
     }
@@ -257,7 +258,9 @@ impl Server {
     ) -> Result<crate::js::JsResponse> {
         let c = match self.ctx_map.lock().unwrap().get(&ctx) {
             None => {
-                return Err(Error::not_found(format!("invalid context: {ctx}")));
+                return Err(Error::not_found(format!(
+                    "invalid context: {ctx}"
+                )));
             }
             Some(c) => c.clone(),
         };

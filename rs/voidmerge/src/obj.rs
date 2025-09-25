@@ -284,9 +284,11 @@ impl Obj for ObjMem {
 
 // -- pub(crate) internal types -- //
 
-pub(crate) struct ObjWrapListPager(DynObjListPager);
+/// Pager for [ObjWrap::list].
+pub struct ObjWrapListPager(DynObjListPager);
 
 impl ObjWrapListPager {
+    /// Get the next page.
     pub async fn next(&mut self) -> Result<Option<Vec<ObjMeta>>> {
         let list = match self.0.next().await? {
             None => return Ok(None),
@@ -303,7 +305,7 @@ impl ObjWrapListPager {
 
 /// Object store type.
 #[derive(Clone)]
-pub(crate) struct ObjWrap {
+pub struct ObjWrap {
     inner: DynObj,
 }
 

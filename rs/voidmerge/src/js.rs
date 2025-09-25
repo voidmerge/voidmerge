@@ -70,6 +70,9 @@ fn js_global_get_max_thread() -> usize {
 /// Javascript setup info.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct JsSetup {
+    /// The current context.
+    pub ctx: Arc<str>,
+
     /// Maximum execution time. Default: 10s.
     pub timeout: std::time::Duration,
 
@@ -83,6 +86,7 @@ pub struct JsSetup {
 impl Default for JsSetup {
     fn default() -> Self {
         Self {
+            ctx: Default::default(),
             timeout: std::time::Duration::from_secs(10),
             heap_size: 1024 * 1024 * 32,
             code: Default::default(),
@@ -98,6 +102,7 @@ pub trait JsExec: 'static + Send + Sync {
     fn exec(
         &self,
         setup: JsSetup,
+        obj: crate::obj::ObjWrap,
         request: JsRequest,
     ) -> BoxFut<'_, Result<JsResponse>>;
 }
@@ -120,11 +125,12 @@ impl JsExec for JsExecDefault {
     fn exec(
         &self,
         setup: JsSetup,
+        obj: crate::obj::ObjWrap,
         request: JsRequest,
     ) -> BoxFut<'_, Result<JsResponse>> {
-        Box::pin(
-            async move { JS.get_or_init(Js::new).exec(setup, request).await },
-        )
+        Box::pin(async move {
+            JS.get_or_init(Js::new).exec(setup, obj, request).await
+        })
     }
 }
 
@@ -146,6 +152,7 @@ impl Js {
     pub async fn exec(
         &self,
         setup: JsSetup,
+        obj: crate::obj::ObjWrap,
         request: JsRequest,
     ) -> Result<JsResponse> {
         let mut found = self.pool.lock().unwrap().get_thread(&setup);
@@ -168,7 +175,7 @@ impl Js {
 
         let thread = found.unwrap();
 
-        let out = thread.exec(setup.clone(), request).await;
+        let out = thread.exec(setup.clone(), obj, request).await;
 
         if thread.is_ready() {
             self.pool.lock().unwrap().put_thread(setup, thread);
@@ -249,10 +256,240 @@ impl JsPool {
     }
 }
 
+use deno_core::OpState;
+use std::cell::RefCell;
+use std::rc::Rc;
+
+#[derive(Clone)]
+struct TState {
+    pub setup: JsSetup,
+    pub obj: crate::obj::ObjWrap,
+    pub list_buf: Arc<
+        Mutex<
+            HashMap<
+                String,
+                std::collections::VecDeque<(u8, Result<Vec<JsObjMeta>>)>,
+            >,
+        >,
+    >,
+}
+
+#[deno_core::op2]
+#[buffer]
+fn op_vm_to_utf8(#[string] input: &str) -> Vec<u8> {
+    input.as_bytes().to_vec()
+}
+
+#[deno_core::op2]
+#[string]
+fn op_vm_from_utf8(#[buffer] input: &[u8]) -> String {
+    String::from_utf8_lossy(input).to_string()
+}
+
+#[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct JsObjMeta {
+    #[serde(default)]
+    pub path: Arc<str>,
+
+    #[serde(rename = "createdSecs", default)]
+    pub created_secs: f64,
+
+    #[serde(rename = "expiresSecs", default)]
+    pub expires_secs: f64,
+}
+
+impl From<JsObjMeta> for crate::obj::ObjMeta {
+    fn from(f: JsObjMeta) -> Self {
+        Self {
+            path: f.path,
+            created_secs: f.created_secs,
+            expires_secs: f.expires_secs,
+        }
+    }
+}
+
+impl From<crate::obj::ObjMeta> for JsObjMeta {
+    fn from(f: crate::obj::ObjMeta) -> Self {
+        Self {
+            path: f.path,
+            created_secs: f.created_secs,
+            expires_secs: f.expires_secs,
+        }
+    }
+}
+
+#[deno_core::op2(async)]
+async fn op_obj_put(
+    state: Rc<RefCell<OpState>>,
+    #[buffer(copy)] data: bytes::Bytes,
+    #[serde] meta: JsObjMeta,
+) -> std::result::Result<(), deno_core::error::CoreError> {
+    if let Some(TState { setup, obj, .. }) =
+        state.borrow().try_borrow::<TState>()
+    {
+        obj.put(
+            crate::obj::ObjMeta::SYS_CTX,
+            setup.ctx.clone(),
+            meta.into(),
+            data,
+        )
+        .await
+        .map_err(|err| deno_core::error::CoreErrorKind::Io(err).into())
+    } else {
+        Err(
+            deno_core::error::CoreErrorKind::Io(Error::other("bad state"))
+                .into(),
+        )
+    }
+}
+
+#[deno_core::op2(async)]
+#[buffer]
+async fn op_obj_get(
+    state: Rc<RefCell<OpState>>,
+    #[serde] meta: JsObjMeta,
+) -> std::result::Result<Vec<u8>, deno_core::error::CoreError> {
+    if let Some(TState { setup, obj, .. }) =
+        state.borrow().try_borrow::<TState>()
+    {
+        obj.get(crate::obj::ObjMeta::SYS_CTX, setup.ctx.clone(), meta.into())
+            .await
+            .map_err(|err| deno_core::error::CoreErrorKind::Io(err).into())
+            .map(|o| o.to_vec())
+    } else {
+        Err(
+            deno_core::error::CoreErrorKind::Io(Error::other("bad state"))
+                .into(),
+        )
+    }
+}
+
+fn ident() -> String {
+    static I: std::sync::atomic::AtomicU64 =
+        std::sync::atomic::AtomicU64::new(1);
+    I.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        .to_string()
+}
+
+#[deno_core::op2]
+#[string]
+fn op_obj_list(
+    state: Rc<RefCell<OpState>>,
+    #[string] path_prefix: String,
+) -> std::result::Result<String, deno_core::error::CoreError> {
+    let TState {
+        setup,
+        obj,
+        list_buf,
+    } = state.borrow().borrow::<TState>().clone();
+
+    let ident = ident();
+
+    let ident2 = ident.clone();
+    tokio::task::spawn(async move {
+        let mut res = match obj
+            .list(
+                crate::obj::ObjMeta::SYS_CTX,
+                setup.ctx.clone(),
+                &path_prefix,
+            )
+            .await
+        {
+            Err(err) => {
+                list_buf
+                    .lock()
+                    .unwrap()
+                    .entry(ident2.clone())
+                    .or_default()
+                    .push_back((0, Err(err)));
+                return;
+            }
+            Ok(r) => r,
+        };
+
+        loop {
+            match res.next().await {
+                Ok(Some(v)) => {
+                    list_buf
+                        .lock()
+                        .unwrap()
+                        .entry(ident2.clone())
+                        .or_default()
+                        .push_back((
+                            1,
+                            Ok(v.into_iter().map(Into::into).collect()),
+                        ));
+                }
+                Ok(None) => {
+                    list_buf
+                        .lock()
+                        .unwrap()
+                        .entry(ident2.clone())
+                        .or_default()
+                        .push_back((0, Ok(Vec::new())));
+                    return;
+                }
+                Err(err) => {
+                    list_buf
+                        .lock()
+                        .unwrap()
+                        .entry(ident2.clone())
+                        .or_default()
+                        .push_back((0, Err(err)));
+                    return;
+                }
+            }
+        }
+    });
+
+    Ok(ident)
+}
+
+#[deno_core::op2]
+#[serde]
+fn op_obj_list_check(
+    state: Rc<RefCell<OpState>>,
+    #[string] ident: String,
+) -> std::result::Result<(u8, Vec<JsObjMeta>), deno_core::error::CoreError> {
+    let TState { list_buf, .. } = state.borrow().borrow::<TState>().clone();
+
+    let nxt: Option<(u8, Result<Vec<JsObjMeta>>)> = list_buf
+        .lock()
+        .unwrap()
+        .get_mut(&ident)
+        .and_then(|v| v.pop_front());
+
+    match nxt {
+        None => Ok((1, Vec::new())),
+        Some((_, Err(err))) => {
+            Err(deno_core::error::CoreErrorKind::Io(err).into())
+        }
+        Some((code, Ok(v))) => Ok((code, v)),
+    }
+}
+
+deno_core::extension!(
+    vm,
+    deps = [deno_console],
+    ops = [
+        op_vm_to_utf8,
+        op_vm_from_utf8,
+        op_obj_put,
+        op_obj_get,
+        op_obj_list,
+        op_obj_list_check,
+    ],
+    esm_entry_point = "ext:vm/entry.js",
+    esm = [ dir "src/js", "entry.js" ],
+);
+
+//rustyscript::deno_core::extension!(
+
 enum Cmd {
     Kill,
     Exec {
         setup: JsSetup,
+        obj: crate::obj::ObjWrap,
         request: JsRequest,
         output: tokio::sync::oneshot::Sender<Result<JsResponse>>,
     },
@@ -289,6 +526,7 @@ impl JsThread {
     pub async fn exec(
         &self,
         setup: JsSetup,
+        obj: crate::obj::ObjWrap,
         request: JsRequest,
     ) -> Result<JsResponse> {
         let (output, r) = tokio::sync::oneshot::channel();
@@ -297,6 +535,7 @@ impl JsThread {
             .unwrap()
             .send(Cmd::Exec {
                 setup,
+                obj,
                 request,
                 output,
             })
@@ -330,6 +569,7 @@ impl JsThread {
             let on_drop = on_drop;
 
             let mut cur_setup;
+            let mut cur_obj;
             let mut cur_request;
             let mut cur_output;
 
@@ -338,48 +578,38 @@ impl JsThread {
                 Some(Cmd::Kill) => return,
                 Some(Cmd::Exec {
                     setup,
+                    obj,
                     request,
                     output,
                 }) => {
                     cur_setup = setup;
+                    cur_obj = obj;
                     cur_request = request;
                     cur_output = output;
                 }
             }
 
             loop {
+                let extensions = vec![vm::init()];
+
+                let opts = rustyscript::RuntimeOptions {
+                    extensions,
+                    timeout: cur_setup.timeout,
+                    max_heap_size: Some(cur_setup.heap_size),
+                    ..Default::default()
+                };
+
                 let mut rust = rustyscript::Runtime::with_tokio_runtime_handle(
-                    rustyscript::RuntimeOptions {
-                        timeout: cur_setup.timeout,
-                        max_heap_size: Some(cur_setup.heap_size),
-                        ..Default::default()
-                    },
+                    opts,
                     handle.clone(),
                 )
                 .unwrap();
 
-                rust.register_function("toUtf8", |args| {
-                    let s = args[0].as_str().unwrap();
-                    Ok(s.as_bytes().to_vec().into())
+                rust.put(TState {
+                    setup: cur_setup.clone(),
+                    obj: cur_obj,
+                    list_buf: Arc::new(Mutex::new(HashMap::new())),
                 })
-                .unwrap();
-
-                rust.register_async_function("bob", |args| {
-                    Box::pin(async move { Ok(format!("{args:?}").into()) })
-                })
-                .unwrap();
-
-                rust.eval::<()>(
-                    "
-                    globalThis.console.log = () => {};
-                    globalThis.console.error = () => {};
-                    globalThis.TextEncoder = class TextEncoder {
-                        encode(s) {
-                            return rustyscript.functions.toUtf8(s);
-                        }
-                    };
-                ",
-                )
                 .unwrap();
 
                 if let Err(err) = rust.eval::<()>(&cur_setup.code) {
@@ -436,11 +666,13 @@ impl JsThread {
                         Some(Cmd::Kill) => return,
                         Some(Cmd::Exec {
                             setup,
+                            obj,
                             request,
                             output,
                         }) => {
                             let reset = cur_setup != setup;
                             cur_setup = setup;
+                            cur_obj = obj;
                             cur_request = request;
                             cur_output = output;
                             if reset {
@@ -467,9 +699,47 @@ mod test {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn js_simple() {
+        let obj = obj::ObjMem::create();
+        let obj = obj::ObjWrap::new(obj).await.unwrap();
+
         let setup = JsSetup {
+            ctx: "bobbo".into(),
             code: "
 async function vm(req) {
+    const b = (new TextEncoder()).encode('hello');
+    console.log('encode', b, b instanceof Uint8Array);
+    const s = (new TextDecoder()).decode(b);
+    console.log('decode', s);
+
+    const t = Date.now() / 1000.0;
+
+    await objPut(
+        (new TextEncoder()).encode('hello'),
+        {
+            path: 'test',
+            createdSecs: t,
+        }
+    );
+
+    const res = (new TextDecoder()).decode(await objGet({
+        path: 'test',
+        createdSecs: t,
+    }));
+
+    let count = 0;
+    await objList('t', (m) => {
+        count += 1;
+        console.log('list got', JSON.stringify(m));
+    });
+
+    if (count !== 1) {
+        throw new Error(`failed to list the item`);
+    }
+
+    if (res !== 'hello') {
+        throw new Error(`bad response, expected 'hello', got: ${res}`);
+    }
+
     if (req.type === 'fnReq') {
         return {
             type: 'fnResOk',
@@ -492,7 +762,15 @@ async function vm(req) {
 
         let js = JsExecDefault::create();
 
-        let res = js.exec(setup, req).await.unwrap();
+        let res = js.exec(setup, obj.clone(), req).await.unwrap();
         println!("got: {res:#?}");
+
+        let mut p = obj
+            .list(crate::obj::ObjMeta::SYS_CTX, "bobbo".into(), "".into())
+            .await
+            .unwrap();
+        while let Some(meta) = p.next().await.unwrap() {
+            println!("GOT: {meta:?}");
+        }
     }
 }
