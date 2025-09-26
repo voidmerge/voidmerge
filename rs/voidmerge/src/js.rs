@@ -260,18 +260,45 @@ use deno_core::OpState;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-#[derive(Clone)]
 struct TState {
     pub setup: JsSetup,
     pub obj: crate::obj::ObjWrap,
-    pub list_buf: Arc<
-        Mutex<
-            HashMap<
-                String,
-                std::collections::VecDeque<(u8, Result<Vec<JsObjMeta>>)>,
-            >,
-        >,
-    >,
+    pub obj_list_pagers: HashMap<String, crate::obj::ObjWrapListPager>,
+}
+
+impl TState {
+    pub fn new(setup: JsSetup, obj: crate::obj::ObjWrap) -> Self {
+        TState {
+            setup,
+            obj,
+            obj_list_pagers: HashMap::new(),
+        }
+    }
+
+    pub fn new_pager(&mut self, pager: crate::obj::ObjWrapListPager) -> String {
+        static IDENT: std::sync::atomic::AtomicU64 =
+            std::sync::atomic::AtomicU64::new(1);
+        let ident = IDENT
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            .to_string();
+        self.obj_list_pagers.insert(ident.clone(), pager);
+        ident
+    }
+
+    pub fn pull_pager(
+        &mut self,
+        ident: &String,
+    ) -> Option<crate::obj::ObjWrapListPager> {
+        self.obj_list_pagers.remove(ident)
+    }
+
+    pub fn push_pager(
+        &mut self,
+        ident: String,
+        pager: crate::obj::ObjWrapListPager,
+    ) {
+        self.obj_list_pagers.insert(ident, pager);
+    }
 }
 
 #[deno_core::op2]
@@ -364,108 +391,60 @@ async fn op_obj_get(
     }
 }
 
-fn ident() -> String {
-    static I: std::sync::atomic::AtomicU64 =
-        std::sync::atomic::AtomicU64::new(1);
-    I.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-        .to_string()
-}
-
-#[deno_core::op2]
+#[deno_core::op2(async)]
 #[string]
-fn op_obj_list(
+async fn op_obj_list(
     state: Rc<RefCell<OpState>>,
     #[string] path_prefix: String,
 ) -> std::result::Result<String, deno_core::error::CoreError> {
-    let TState {
-        setup,
-        obj,
-        list_buf,
-    } = state.borrow().borrow::<TState>().clone();
-
-    let ident = ident();
-
-    let ident2 = ident.clone();
-    tokio::task::spawn(async move {
-        let mut res = match obj
-            .list(
-                crate::obj::ObjMeta::SYS_CTX,
-                setup.ctx.clone(),
-                &path_prefix,
+    let pager = if let Some(TState { setup, obj, .. }) =
+        state.borrow().try_borrow::<TState>()
+    {
+        obj.list(
+            crate::obj::ObjMeta::SYS_CTX,
+            setup.ctx.clone(),
+            &path_prefix,
+        )
+        .await
+        .map_err(|err| {
+            deno_core::error::CoreError::from(
+                deno_core::error::CoreErrorKind::Io(err),
             )
-            .await
-        {
-            Err(err) => {
-                list_buf
-                    .lock()
-                    .unwrap()
-                    .entry(ident2.clone())
-                    .or_default()
-                    .push_back((0, Err(err)));
-                return;
-            }
-            Ok(r) => r,
-        };
+        })?
+    } else {
+        return Err(deno_core::error::CoreErrorKind::Io(Error::other(
+            "bad state",
+        ))
+        .into());
+    };
 
-        loop {
-            match res.next().await {
-                Ok(Some(v)) => {
-                    list_buf
-                        .lock()
-                        .unwrap()
-                        .entry(ident2.clone())
-                        .or_default()
-                        .push_back((
-                            1,
-                            Ok(v.into_iter().map(Into::into).collect()),
-                        ));
-                }
-                Ok(None) => {
-                    list_buf
-                        .lock()
-                        .unwrap()
-                        .entry(ident2.clone())
-                        .or_default()
-                        .push_back((0, Ok(Vec::new())));
-                    return;
-                }
-                Err(err) => {
-                    list_buf
-                        .lock()
-                        .unwrap()
-                        .entry(ident2.clone())
-                        .or_default()
-                        .push_back((0, Err(err)));
-                    return;
-                }
-            }
-        }
-    });
+    let ident = state.borrow_mut().borrow_mut::<TState>().new_pager(pager);
 
     Ok(ident)
 }
 
-#[deno_core::op2]
+#[deno_core::op2(async)]
 #[serde]
-fn op_obj_list_check(
+async fn op_obj_list_check(
     state: Rc<RefCell<OpState>>,
     #[string] ident: String,
-) -> std::result::Result<(u8, Vec<JsObjMeta>), deno_core::error::CoreError> {
-    let TState { list_buf, .. } = state.borrow().borrow::<TState>().clone();
+) -> std::result::Result<Option<Vec<JsObjMeta>>, deno_core::error::CoreError> {
+    let mut state = state.borrow_mut();
+    let state = state.borrow_mut::<TState>();
 
-    let nxt: Option<(u8, Result<Vec<JsObjMeta>>)> = list_buf
-        .lock()
-        .unwrap()
-        .get_mut(&ident)
-        .and_then(|v| v.pop_front());
+    let pager = state.pull_pager(&ident);
 
-    match nxt {
-        None => Ok((1, Vec::new())),
-        Some((_, Err(err))) => {
-            Err(deno_core::error::CoreErrorKind::Io(err).into())
-        }
-        Some((code, Ok(v))) => Ok((code, v)),
+    let mut pager = match pager {
+        None => return Ok(None),
+        Some(pager) => pager,
+    };
+
+    if let Some(d) = pager.next().await? {
+        state.push_pager(ident, pager);
+        return Ok(Some(d.into_iter().map(Into::into).collect()));
     }
+
+    Ok(None)
 }
 
 deno_core::extension!(
@@ -605,12 +584,7 @@ impl JsThread {
                 )
                 .unwrap();
 
-                rust.put(TState {
-                    setup: cur_setup.clone(),
-                    obj: cur_obj,
-                    list_buf: Arc::new(Mutex::new(HashMap::new())),
-                })
-                .unwrap();
+                rust.put(TState::new(cur_setup.clone(), cur_obj)).unwrap();
 
                 if let Err(err) = rust.eval::<()>(&cur_setup.code) {
                     on_drop.not_ready();
