@@ -2074,6 +2074,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a"
 
 [[package]]
+name = "minimist"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "81845261128ac4f626e7a99f9c62a013467969d1ec4ddb1eecbb45adae041314"
+
+[[package]]
 name = "miniz_oxide"
 version = "0.8.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4299,6 +4305,7 @@ dependencies = [
  "bytes",
  "clap",
  "deno_core",
+ "minimist",
  "reqwest",
  "rmp-serde",
  "rustyscript",

@@ -1,6 +1,67 @@
 use std::sync::Arc;
 use voidmerge::*;
 
+trait MinExt {
+    fn split_list(&self, arg: &str) -> impl Iterator<Item = String>;
+}
+
+impl MinExt for minimist::Minimist {
+    fn split_list(&self, arg: &str) -> impl Iterator<Item = String> {
+        let mut out = Vec::new();
+
+        if let Some(i) = self.to_list_str(arg) {
+            for s in i {
+                for s in s.split(',') {
+                    out.push(s.into());
+                }
+            }
+        };
+
+        out.into_iter()
+    }
+}
+
+fn help() {
+    println!("VoidMerge P2p in Easy Mode");
+    println!("");
+    println!("Usage: vm <COMMAND> <OPTIONS>");
+    println!("");
+    println!("help -h --help            : Print this help");
+    println!("");
+    println!("serve                     : Run the VoidMerge HTTP server");
+    println!("  --sys-admin <SYS_ADMIN> : SysAdmin tokens to inject during startup.");
+    println!("                            (env: VM_SYS_ADMIN_TOKENS=, comma delimited.)");
+    println!("  --http-addr <HTTP_ADDR> : Http server address to bind");
+    println!("                            (env: VM_HTTP_ADDR=)");
+    println!("                            (def: '[::]:8080')");
+}
+
+fn arg_parse() -> (String, minimist::Minimist) {
+    let mut args = minimist::Minimist::parse(std::env::args_os().skip(1));
+
+    args.set_default_env("sys-admin", "VM_SYS_ADMIN_TOKENS");
+
+    args.set_default_env("http-addr", "VM_HTTP_ADDR");
+    args.set_default("http-addr", "[::]:8080");
+
+    args.set_default_env("timeout-secs", "VM_TIMEOUT_SECS");
+    args.set_default("timeout-secs", "10.0");
+
+    args.set_default_env("max-heap-bytes", "VM_MAX_HEAP_BYTES");
+    args.set_default("max-heap-bytes", "33554432");
+
+    let mut cmd = args
+        .to_one_str(minimist::Minimist::POS)
+        .unwrap_or_else(|| "help".into())
+        .to_string();
+
+    if args.as_flag("h") || args.as_flag("help") {
+        cmd = "help".into();
+    }
+
+    (cmd, args)
+}
+
 #[derive(Debug, clap::Parser)]
 #[command(version, about)]
 struct Arg {

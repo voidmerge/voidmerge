@@ -27,6 +27,7 @@ deno_core = "0.355.0"
 #futures = "0.3.31"
 #maplit = "1"
 #mime_guess = "2.0.5"
+minimist = "0.1.1"
 #num_cpus = "1.17"
 #oqs = { version = "0.11.0", default-features = false }
 #p256 = "0.13"

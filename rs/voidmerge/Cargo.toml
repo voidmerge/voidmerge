@@ -25,6 +25,7 @@ deno_core = { workspace = true }
 #futures = { workspace = true }
 #maplit = { workspace = true }
 #mime_guess = { workspace = true, optional = true }
+minimist = { workspace = true, optional = true }
 #num_cpus = { workspace = true }
 #oqs = { workspace = true, default-features = false, features = [ "std", "ml_dsa" ], optional = true }
 #p256 = { workspace = true, optional = true }
@@ -55,7 +56,7 @@ default = [ "http-server", "cli" ]
 http-server = [ "dep:axum", "dep:axum-server", "dep:tower-http" ]
 
 # The cli tool.
-cli = [ "dep:clap", "tokio/full", "dep:tracing-subscriber" ]
+cli = [ "dep:clap", "dep:minimist", "tokio/full", "dep:tracing-subscriber" ]
 
 # The cli tool.
 #vm = [ "dep:app_dirs2", "dep:clap", "dep:mime_guess", "tokio/full", "dep:tracing-subscriber", "dep:zip" ]
