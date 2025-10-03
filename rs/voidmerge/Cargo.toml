@@ -17,7 +17,6 @@ axum = { workspace = true, optional = true, features = [ "macros", "ws" ] }
 axum-server = { workspace = true, optional = true }
 base64 = { workspace = true }
 bytes = { workspace = true, features = [ "serde" ] }
-clap = { workspace = true, features = [ "derive", "env", "wrap_help" ], optional = true }
 deno_core = { workspace = true }
 #digest = { workspace = true }
 #ed25519-dalek = { workspace = true, features = [ "digest", "rand_core" ], optional = true }
@@ -56,7 +55,7 @@ default = [ "http-server", "cli" ]
 http-server = [ "dep:axum", "dep:axum-server", "dep:tower-http" ]
 
 # The cli tool.
-cli = [ "dep:clap", "dep:minimist", "tokio/full", "dep:tracing-subscriber" ]
+cli = [ "dep:minimist", "tokio/full", "dep:tracing-subscriber" ]
 
 # The cli tool.
 #vm = [ "dep:app_dirs2", "dep:clap", "dep:mime_guess", "tokio/full", "dep:tracing-subscriber", "dep:zip" ]

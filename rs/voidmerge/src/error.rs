@@ -23,6 +23,9 @@ pub trait ErrorExt: Send + Sync {
 
     /// Unauthorized access.
     fn unauthorized(src: impl Into<Box<dyn StdError + Send + Sync>>) -> Error;
+
+    /// Invalid input.
+    fn invalid(src: impl Into<Box<dyn StdError + Send + Sync>>) -> Error;
 }
 
 impl ErrorExt for Error {
@@ -73,6 +76,10 @@ impl ErrorExt for Error {
 
     fn unauthorized(src: impl Into<Box<dyn StdError + Send + Sync>>) -> Error {
         std::io::Error::new(std::io::ErrorKind::PermissionDenied, src)
+    }
+
+    fn invalid(src: impl Into<Box<dyn StdError + Send + Sync>>) -> Error {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, src)
     }
 }
 
