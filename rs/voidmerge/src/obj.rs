@@ -32,28 +32,21 @@ pub trait Obj: 'static + Send + Sync {
 /// Dyn [Obj] type.
 pub type DynObj = Arc<dyn Obj + 'static + Send + Sync>;
 
-fn p_no(s: &Arc<str>) -> bool {
-    s.is_empty()
-}
-
-fn ts_no(f: &f64) -> bool {
-    *f != 0.0
-}
-
 /// Meta-data related to an object.
 #[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct ObjMeta {
-    /// The path to this object.
-    #[serde(rename = "p", default, skip_serializing_if = "p_no")]
-    pub path: Arc<str>,
+#[serde(transparent)]
+pub struct ObjMeta(pub Arc<str>);
 
-    /// Created time of this object.
-    #[serde(rename = "c", default, skip_serializing_if = "ts_no")]
-    pub created_secs: f64,
+impl std::fmt::Display for ObjMeta {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
 
-    /// Expires time of this object.
-    #[serde(rename = "e", default, skip_serializing_if = "ts_no")]
-    pub expires_secs: f64,
+impl<R: AsRef<str>> From<R> for ObjMeta {
+    fn from(r: R) -> Self {
+        Self(r.as_ref().into())
+    }
 }
 
 impl ObjMeta {
@@ -69,82 +62,73 @@ impl ObjMeta {
     /// System path: "c" for context.
     pub(crate) const SYS_CTX: &'static str = "c";
 
-    /// Parse an ObjMeta from a full system path.
-    pub(crate) fn with_path(
-        path: &str,
-    ) -> Result<(&'static str, Arc<str>, Self)> {
-        let sys_prefix: &'static str;
-        let ctx;
-        let mut out = ObjMeta::default();
-
-        let mut iter = path.split('/');
-
-        if let Some(s) = iter.next() {
-            match s {
-                Self::SYS_SETUP => sys_prefix = Self::SYS_SETUP,
-                Self::SYS_CTX_SETUP => sys_prefix = Self::SYS_CTX_SETUP,
-                Self::SYS_CTX_CONFIG => sys_prefix = Self::SYS_CTX_CONFIG,
-                Self::SYS_CTX => sys_prefix = Self::SYS_CTX,
-                _ => {
-                    return Err(Error::other(
-                        "bad object store path (sys_prefix)",
-                    ));
-                }
-            }
-        } else {
-            return Err(Error::other("bad object store path (sys_prefix)"));
-        }
-
-        if let Some(s) = iter.next() {
-            ctx = s.into();
-        } else {
-            return Err(Error::other("bad object store path (ctx)"));
-        }
-
-        if let Some(s) = iter.next() {
-            out.path = s.into();
-        } else {
-            return Err(Error::other("bad object store path (path)"));
-        }
-
-        if let Some(s) = iter.next() {
-            if let Ok(s) = s.parse() {
-                out.created_secs = s;
-            } else {
-                return Err(Error::other(
-                    "bad object store path (created_secs)",
-                ));
-            }
-        } else {
-            return Err(Error::other("bad object store path (created_secs)"));
-        }
-
-        if let Some(s) = iter.next() {
-            if let Ok(s) = s.parse() {
-                out.expires_secs = s;
-            } else {
-                return Err(Error::other(
-                    "bad object store path (expires_secs)",
-                ));
-            }
-        } else {
-            return Err(Error::other("bad object store path (expires_secs)"));
-        }
-
-        Ok((sys_prefix, ctx, out))
+    /// Create a new meta path from components.
+    pub(crate) fn new(
+        sys_prefix: &'static str,
+        ctx: &str,
+        app_path: &str,
+        created_secs: f64,
+        expires_secs: f64,
+    ) -> Self {
+        Self(
+            format!(
+                "{}/{}/{}/{}/{}",
+                sys_prefix, ctx, app_path, created_secs, expires_secs,
+            )
+            .into(),
+        )
     }
 
-    /// Get the full system path.
-    pub(crate) fn sys_path(
-        &self,
-        sys_prefix: &'static str,
-        ctx: Arc<str>,
-    ) -> Arc<str> {
-        format!(
-            "{}/{}/{}/{}/{}",
-            sys_prefix, ctx, self.path, self.created_secs, self.expires_secs,
-        )
-        .into()
+    /// Create a new context meta path from components.
+    pub fn new_context(
+        ctx: &str,
+        app_path: &str,
+        created_secs: f64,
+        expires_secs: f64,
+    ) -> Self {
+        Self::new(Self::SYS_CTX, ctx, app_path, created_secs, expires_secs)
+    }
+
+    /// Get the sys_prefix associated with this meta path.
+    pub(crate) fn sys_prefix(&self) -> &'static str {
+        match self.0.split('/').next() {
+            Some(Self::SYS_SETUP) => Self::SYS_SETUP,
+            Some(Self::SYS_CTX_SETUP) => Self::SYS_CTX_SETUP,
+            Some(Self::SYS_CTX_CONFIG) => Self::SYS_CTX_CONFIG,
+            _ => Self::SYS_CTX,
+        }
+    }
+
+    /// Get the ctx associated with this meta path.
+    pub fn ctx(&self) -> &str {
+        self.0.split('/').skip(1).next().unwrap_or("")
+    }
+
+    /// Get the app path associated with this meta path.
+    pub fn app_path(&self) -> &str {
+        self.0.split('/').skip(2).next().unwrap_or("")
+    }
+
+    /// Get the created_secs associated with this meta path.
+    pub fn created_secs(&self) -> f64 {
+        self.0
+            .split('/')
+            .skip(3)
+            .next()
+            .unwrap_or("")
+            .parse()
+            .unwrap_or(0.0)
+    }
+
+    /// Get the expires_secs associated with this meta path.
+    pub fn expires_secs(&self) -> f64 {
+        self.0
+            .split('/')
+            .skip(4)
+            .next()
+            .unwrap_or("")
+            .parse()
+            .unwrap_or(0.0)
     }
 }
 
@@ -156,25 +140,17 @@ struct MemItem {
 
 impl MemItem {
     fn parse(path: Arc<str>) -> Result<(Arc<str>, Self)> {
-        fn it_f64<'a>(iter: &mut impl Iterator<Item = &'a str>) -> Result<f64> {
-            if let Some(f) = iter.next() {
-                if let Ok(f) = f.parse::<f64>() {
-                    return Ok(f);
-                }
-            }
-            Err(Error::other("failed to parse f64"))
-        }
-
-        let mut out = Self::default();
-
-        let mut iter = path.rsplitn(3, '/');
-        out.meta.expires_secs = it_f64(&mut iter)?;
-        out.meta.created_secs = it_f64(&mut iter)?;
-        let prefix: Arc<str> = iter
-            .next()
-            .ok_or_else(|| Error::other("failed to parse prefix"))?
-            .into();
-        out.meta.path = path;
+        let out = Self {
+            meta: ObjMeta(path),
+            obj: Default::default(),
+        };
+        let prefix = format!(
+            "{}/{}/{}",
+            out.meta.sys_prefix(),
+            out.meta.ctx(),
+            out.meta.app_path(),
+        )
+        .into();
         Ok((prefix, out))
     }
 }
@@ -202,8 +178,8 @@ impl ObjMemInner {
         self.last_prune = now;
         let now = sys_now();
         self.map.retain(|_, mem_item| {
-            mem_item.meta.expires_secs == 0.0
-                || mem_item.meta.expires_secs > now
+            mem_item.meta.expires_secs() == 0.0
+                || mem_item.meta.expires_secs() > now
         });
     }
 }
@@ -246,7 +222,7 @@ impl Obj for ObjMem {
                 lock.check_prune();
                 for (prefix, mem_item) in lock.map.iter() {
                     if prefix.starts_with(&*path_prefix) {
-                        out.push(mem_item.meta.path.clone());
+                        out.push(mem_item.meta.0.clone());
                     }
                 }
             }
@@ -270,9 +246,9 @@ impl Obj for ObjMem {
             mem_item.obj = obj;
             let mut lock = self.0.lock().unwrap();
             lock.check_prune();
-            let new_created_secs = mem_item.meta.created_secs;
+            let new_created_secs = mem_item.meta.created_secs();
             if let Some(prev_item) = lock.map.insert(prefix.clone(), mem_item) {
-                if prev_item.meta.created_secs >= new_created_secs {
+                if prev_item.meta.created_secs() >= new_created_secs {
                     // whoops, put the previous one back
                     lock.map.insert(prefix, prev_item);
                 }
@@ -294,12 +270,7 @@ impl ObjWrapListPager {
             None => return Ok(None),
             Some(list) => list,
         };
-        let mut out = Vec::with_capacity(list.len());
-        for path in list {
-            let (_, _, meta) = ObjMeta::with_path(&path)?;
-            out.push(meta);
-        }
-        Ok(Some(out))
+        Ok(Some(list.into_iter().map(ObjMeta).collect()))
     }
 }
 
@@ -320,63 +291,36 @@ impl ObjWrap {
 
 impl ObjWrap {
     /// Get an object by metadata from the store.
-    pub async fn get(
-        &self,
-        sys_prefix: &'static str,
-        ctx: Arc<str>,
-        meta: ObjMeta,
-    ) -> Result<Bytes> {
-        self.inner.get(meta.sys_path(sys_prefix, ctx)).await
+    pub async fn get(&self, meta: ObjMeta) -> Result<Bytes> {
+        self.inner.get(meta.0).await
     }
 
     /// List objects in the store.
-    pub async fn list(
-        &self,
-        sys_prefix: &'static str,
-        ctx: Arc<str>,
-        path_prefix: &str,
-    ) -> Result<ObjWrapListPager> {
-        let prefix = format!("{}/{}/{}", sys_prefix, ctx, path_prefix).into();
-        let pager = self.inner.list(prefix).await?;
+    pub async fn list(&self, path_prefix: &str) -> Result<ObjWrapListPager> {
+        let pager = self.inner.list(path_prefix.into()).await?;
         Ok(ObjWrapListPager(pager))
     }
 
     /// Put an object into the store.
-    pub async fn put(
-        &self,
-        sys_prefix: &'static str,
-        ctx: Arc<str>,
-        meta: ObjMeta,
-        obj: Bytes,
-    ) -> Result<()> {
-        if ctx.len() > 44 {
-            return Err(Error::other("ctx too long"));
-        }
-        if meta.path.len() > 512 {
-            return Err(Error::other("path too long"));
-        }
-        safe_str(&meta.path).map_err(|err| err.with_info("invalid path"))?;
-        let path = meta.sys_path(sys_prefix, ctx).into();
-        self.inner.put(path, obj).await
+    pub async fn put(&self, meta: ObjMeta, obj: Bytes) -> Result<()> {
+        safe_str(&meta.app_path())
+            .map_err(|err| err.with_info("invalid path"))?;
+        self.inner.put(meta.0, obj).await
     }
 
     /// Get a single item.
     pub async fn get_single(
         &self,
-        sys_prefix: &'static str,
-        ctx: Arc<str>,
         path_part: &str,
     ) -> Result<(Bytes, ObjMeta)> {
-        let mut page = self.list(sys_prefix, ctx.clone(), path_part).await?;
+        let mut page = self.list(path_part).await?;
         while let Ok(Some(page)) = page.next().await {
             for meta in page {
-                let obj = self.get(sys_prefix, ctx, meta.clone()).await?;
+                let obj = self.get(meta.clone()).await?;
                 return Ok((obj, meta));
             }
         }
-        Err(Error::not_found(format!(
-            "could not find {sys_prefix}/{ctx}/{path_part}"
-        )))
+        Err(Error::not_found(format!("could not find {path_part}")))
     }
 
     /// Get the sys_setup.
@@ -384,7 +328,11 @@ impl ObjWrap {
         use crate::server::SysSetup;
 
         if let Ok((sys_setup, _)) = self
-            .get_single(ObjMeta::SYS_SETUP, ObjMeta::SYS_SETUP.into(), "setup")
+            .get_single(&format!(
+                "{}/{}/setup",
+                ObjMeta::SYS_SETUP,
+                ObjMeta::SYS_SETUP
+            ))
             .await
         {
             sys_setup.to_decode()
@@ -398,18 +346,14 @@ impl ObjWrap {
         &self,
         sys_setup: crate::server::SysSetup,
     ) -> Result<()> {
-        let meta = ObjMeta {
-            path: "setup".into(),
-            created_secs: sys_now(),
-            ..Default::default()
-        };
-        self.put(
+        let meta = ObjMeta::new(
             ObjMeta::SYS_SETUP,
-            ObjMeta::SYS_SETUP.into(),
-            meta,
-            Bytes::from_encode(&sys_setup)?,
-        )
-        .await?;
+            ObjMeta::SYS_SETUP,
+            "setup",
+            sys_now(),
+            0.0,
+        );
+        self.put(meta, Bytes::from_encode(&sys_setup)?).await?;
         Ok(())
     }
 
@@ -427,9 +371,8 @@ impl ObjWrap {
         let mut page = self.inner.list(prefix).await?;
         while let Ok(Some(page)) = page.next().await {
             for path in page {
-                let (sys, ctx, meta) = ObjMeta::with_path(&path)?;
                 let setup: CtxSetup =
-                    self.get(sys, ctx, meta).await?.to_decode()?;
+                    self.get(ObjMeta(path)).await?.to_decode()?;
                 let ctx = setup.ctx.clone();
                 out.entry(ctx).or_default().0 = setup;
             }
@@ -439,9 +382,8 @@ impl ObjWrap {
         let mut page = self.inner.list(prefix).await?;
         while let Ok(Some(page)) = page.next().await {
             for path in page {
-                let (sys, ctx, meta) = ObjMeta::with_path(&path)?;
                 let config: CtxConfig =
-                    self.get(sys, ctx, meta).await?.to_decode()?;
+                    self.get(ObjMeta(path)).await?.to_decode()?;
                 let ctx = config.ctx.clone();
                 out.entry(ctx).or_default().1 = config;
             }
@@ -455,18 +397,14 @@ impl ObjWrap {
         &self,
         ctx_setup: crate::server::CtxSetup,
     ) -> Result<()> {
-        let meta = ObjMeta {
-            path: "setup".into(),
-            created_secs: sys_now(),
-            ..Default::default()
-        };
-        self.put(
+        let meta = ObjMeta::new(
             ObjMeta::SYS_CTX_SETUP,
-            ctx_setup.ctx.clone(),
-            meta,
-            Bytes::from_encode(&ctx_setup)?,
-        )
-        .await?;
+            &ctx_setup.ctx,
+            "setup",
+            sys_now(),
+            0.0,
+        );
+        self.put(meta, Bytes::from_encode(&ctx_setup)?).await?;
         Ok(())
     }
 
@@ -475,18 +413,14 @@ impl ObjWrap {
         &self,
         ctx_config: crate::server::CtxConfig,
     ) -> Result<()> {
-        let meta = ObjMeta {
-            path: "config".into(),
-            created_secs: sys_now(),
-            ..Default::default()
-        };
-        self.put(
+        let meta = ObjMeta::new(
             ObjMeta::SYS_CTX_CONFIG,
-            ctx_config.ctx.clone(),
-            meta,
-            Bytes::from_encode(&ctx_config)?,
-        )
-        .await?;
+            &ctx_config.ctx,
+            "config",
+            sys_now(),
+            0.0,
+        );
+        self.put(meta, Bytes::from_encode(&ctx_config)?).await?;
         Ok(())
     }
 }
@@ -502,13 +436,7 @@ mod test {
         let ctx: Arc<str> = "AAAA".into();
 
         o.put(
-            ObjMeta::SYS_SETUP,
-            ctx.clone(),
-            ObjMeta {
-                path: "test".into(),
-                created_secs: sys_now(),
-                ..Default::default()
-            },
+            ObjMeta::new(ObjMeta::SYS_SETUP, &ctx, "test", sys_now(), 0.0),
             Bytes::from_static(b"hello"),
         )
         .await
@@ -516,7 +444,7 @@ mod test {
 
         let mut found = Vec::new();
         let mut p = o
-            .list(ObjMeta::SYS_SETUP, ctx.clone(), "t".into())
+            .list(&format!("{}/{}/t", ObjMeta::SYS_SETUP, ctx))
             .await
             .unwrap();
         while let Ok(Some(mut v)) = p.next().await {
@@ -524,7 +452,7 @@ mod test {
         }
         let found = found.remove(0);
 
-        let got = o.get(ObjMeta::SYS_SETUP, ctx.clone(), found).await.unwrap();
+        let got = o.get(found).await.unwrap();
 
         assert_eq!(b"hello", got.as_ref());
     }

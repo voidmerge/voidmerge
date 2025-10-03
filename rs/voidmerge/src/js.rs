@@ -313,55 +313,42 @@ fn op_vm_from_utf8(#[buffer] input: &[u8]) -> String {
     String::from_utf8_lossy(input).to_string()
 }
 
-#[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
-struct JsObjMeta {
-    #[serde(default)]
-    pub path: Arc<str>,
+#[derive(Debug, serde::Deserialize)]
+struct PutMeta {
+    #[serde(rename = "appPath", default)]
+    app_path: String,
 
     #[serde(rename = "createdSecs", default)]
-    pub created_secs: f64,
+    created_secs: f64,
 
     #[serde(rename = "expiresSecs", default)]
-    pub expires_secs: f64,
-}
-
-impl From<JsObjMeta> for crate::obj::ObjMeta {
-    fn from(f: JsObjMeta) -> Self {
-        Self {
-            path: f.path,
-            created_secs: f.created_secs,
-            expires_secs: f.expires_secs,
-        }
-    }
-}
-
-impl From<crate::obj::ObjMeta> for JsObjMeta {
-    fn from(f: crate::obj::ObjMeta) -> Self {
-        Self {
-            path: f.path,
-            created_secs: f.created_secs,
-            expires_secs: f.expires_secs,
-        }
-    }
+    expires_secs: f64,
 }
 
 #[deno_core::op2(async)]
+#[serde]
 async fn op_obj_put(
     state: Rc<RefCell<OpState>>,
     #[buffer(copy)] data: bytes::Bytes,
-    #[serde] meta: JsObjMeta,
-) -> std::result::Result<(), deno_core::error::CoreError> {
+    #[serde] put_meta: PutMeta,
+) -> std::result::Result<Arc<str>, deno_core::error::CoreError> {
     if let Some(TState { setup, obj, .. }) =
         state.borrow().try_borrow::<TState>()
     {
-        obj.put(
-            crate::obj::ObjMeta::SYS_CTX,
-            setup.ctx.clone(),
-            meta.into(),
-            data,
-        )
-        .await
-        .map_err(|err| deno_core::error::CoreErrorKind::Io(err).into())
+        let meta = crate::obj::ObjMeta::new_context(
+            &setup.ctx,
+            &put_meta.app_path,
+            put_meta.created_secs,
+            put_meta.expires_secs,
+        );
+
+        obj.put(meta.clone(), data).await.map_err(|err| {
+            deno_core::error::CoreError::from(
+                deno_core::error::CoreErrorKind::Io(err),
+            )
+        })?;
+
+        Ok(meta.0)
     } else {
         Err(
             deno_core::error::CoreErrorKind::Io(Error::other("bad state"))
@@ -374,12 +361,25 @@ async fn op_obj_put(
 #[buffer]
 async fn op_obj_get(
     state: Rc<RefCell<OpState>>,
-    #[serde] meta: JsObjMeta,
+    #[string] meta: String,
 ) -> std::result::Result<Vec<u8>, deno_core::error::CoreError> {
     if let Some(TState { setup, obj, .. }) =
         state.borrow().try_borrow::<TState>()
     {
-        obj.get(crate::obj::ObjMeta::SYS_CTX, setup.ctx.clone(), meta.into())
+        let meta = crate::obj::ObjMeta(meta.into());
+        if meta.sys_prefix() != crate::obj::ObjMeta::SYS_CTX {
+            return Err(deno_core::error::CoreErrorKind::Io(Error::other(
+                "invalid sys prefix",
+            ))
+            .into());
+        }
+        if meta.ctx() != &*setup.ctx {
+            return Err(deno_core::error::CoreErrorKind::Io(Error::other(
+                "invalid sys context",
+            ))
+            .into());
+        }
+        obj.get(meta.into())
             .await
             .map_err(|err| deno_core::error::CoreErrorKind::Io(err).into())
             .map(|o| o.to_vec())
@@ -400,13 +400,12 @@ async fn op_obj_list(
     let pager = if let Some(TState { setup, obj, .. }) =
         state.borrow().try_borrow::<TState>()
     {
-        obj.list(
+        let path = format!(
+            "{}/{}/{path_prefix}",
             crate::obj::ObjMeta::SYS_CTX,
-            setup.ctx.clone(),
-            &path_prefix,
-        )
-        .await
-        .map_err(|err| {
+            setup.ctx
+        );
+        obj.list(&path).await.map_err(|err| {
             deno_core::error::CoreError::from(
                 deno_core::error::CoreErrorKind::Io(err),
             )
@@ -428,7 +427,7 @@ async fn op_obj_list(
 async fn op_obj_list_check(
     state: Rc<RefCell<OpState>>,
     #[string] ident: String,
-) -> std::result::Result<Option<Vec<JsObjMeta>>, deno_core::error::CoreError> {
+) -> std::result::Result<Option<Vec<Arc<str>>>, deno_core::error::CoreError> {
     let mut state = state.borrow_mut();
     let state = state.borrow_mut::<TState>();
 
@@ -441,7 +440,7 @@ async fn op_obj_list_check(
 
     if let Some(d) = pager.next().await? {
         state.push_pager(ident, pager);
-        return Ok(Some(d.into_iter().map(Into::into).collect()));
+        return Ok(Some(d.into_iter().map(|m| m.0).collect()));
     }
 
     Ok(None)
@@ -687,18 +686,17 @@ async function vm(req) {
 
     const t = Date.now() / 1000.0;
 
-    await objPut(
+    const meta = await objPut(
         (new TextEncoder()).encode('hello'),
         {
-            path: 'test',
+            appPath: 'test',
             createdSecs: t,
         }
     );
+    console.log(`put returned meta: ${meta}`);
 
-    const res = (new TextDecoder()).decode(await objGet({
-        path: 'test',
-        createdSecs: t,
-    }));
+    const res = (new TextDecoder()).decode(await objGet(meta));
+    console.log(`fetched: ${res}`);
 
     let count = 0;
     await objList('t', (m) => {
@@ -739,10 +737,8 @@ async function vm(req) {
         let res = js.exec(setup, obj.clone(), req).await.unwrap();
         println!("got: {res:#?}");
 
-        let mut p = obj
-            .list(crate::obj::ObjMeta::SYS_CTX, "bobbo".into(), "".into())
-            .await
-            .unwrap();
+        let prefix = format!("{}/bobbo/", crate::obj::ObjMeta::SYS_CTX);
+        let mut p = obj.list(&prefix).await.unwrap();
         while let Some(meta) = p.next().await.unwrap() {
             println!("GOT: {meta:?}");
         }
