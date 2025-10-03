@@ -2,74 +2,44 @@ use std::sync::Arc;
 use voidmerge::*;
 
 fn help() {
-    println!("VoidMerge P2p in Easy Mode");
-    println!("");
-    println!("Usage: vm <COMMAND> <OPTIONS>");
-    println!("");
-    println!("help -h --help            : Print this help");
-    println!("");
-    println!("serve                     : Run the VoidMerge HTTP server");
     println!(
-        "  --sys-admin <SYS_ADMIN> : SysAdmin tokens to inject during startup"
-    );
-    println!(
-        "                            (env: VM_SYS_ADMIN_TOKENS=, comma delimited)"
-    );
-    println!(
-        "  --http-addr <HTTP_ADDR> : Http server address to bind (env: VM_HTTP_ADDR=)"
-    );
-    println!("                            (def: '[::]:8080')");
-    println!("");
-    println!(
-        "health                    : Execute a health check against a server"
-    );
-    println!("  --url       <URL>       : The server url (env: VM_URL=)");
-    println!("");
-    println!("ctx-setup                 : Setup a context (sysadmin)");
-    println!("  --url       <URL>       : The server url (env: VM_URL=)");
-    println!(
-        "  --token     <TOKEN>     : The sysadmin api token to use (env: VM_TOKEN=)"
-    );
-    println!(
-        "  --context   <CONTEXT>   : The context to configure (env: VM_CTX=)"
-    );
-    println!(
-        "  --delete                : If this flag is set, delete the context"
-    );
-    println!(
-        "                            Other properties will be ignored (env: VM_DELETE=)"
-    );
-    println!(
-        "  --ctx-admin <TOKENS>    : CtxAdmin tokens to setup in the context"
-    );
-    println!(
-        "                            (env: VM_CTX_ADMIN_TOKENS=, comma delimited)"
-    );
-    println!(
-        "  --timeout-secs          : Timeout for functions (env: VM_TIMEOUT_SECS=)"
-    );
-    println!("                            (def: '10.0')");
-    println!(
-        "  --max-heap-bytes        : Max memory for functions (env: VM_MAX_HEAP_BYTES)"
-    );
-    println!("                            (def: '33554432')");
-    println!("");
-    println!("ctx-config                : Configure a context (ctxadmin)");
-    println!("  --url       <URL>       : The server url (env: VM_URL=)");
-    println!(
-        "  --token     <TOKEN>     : The ctxadmin api token to use (env: VM_TOKEN=)"
-    );
-    println!(
-        "  --context   <CONTEXT>   : The context to configure (env: VM_CTX=)"
-    );
-    println!(
-        "  --ctx-admin <TOKENS>    : CtxAdmin tokens to setup in the context"
-    );
-    println!(
-        "                            (env: VM_CTX_ADMIN_TOKENS=, comma delimited)"
-    );
-    println!(
-        "  --code      <CODE>      : Javascript code for the context (env: VM_CODE=)"
+        r#"
+VoidMerge P2p in Easy Mode
+
+Usage: vm <COMMAND> <OPTIONS>
+
+help -h --help            : Print this help
+
+serve                     : Run the VoidMerge HTTP server
+  --sys-admin <SYS_ADMIN> : SysAdmin tokens to inject during startup
+                            (env: VM_SYS_ADMIN_TOKENS=, comma delimited)
+  --http-addr <HTTP_ADDR> : Http server address to bind (env: VM_HTTP_ADDR=)
+                            (def: '[::]:8080')
+
+health                    : Execute a health check against a server
+  --url       <URL>       : The server url (env: VM_URL=)
+
+ctx-setup                 : Setup a context (sysadmin)
+  --url       <URL>       : The server url (env: VM_URL=)
+  --token     <TOKEN>     : The sysadmin api token to use (env: VM_TOKEN=)
+  --context   <CONTEXT>   : The context to configure (env: VM_CTX=)
+  --delete                : If this flag is set, delete the context
+                            Other properties will be ignored (env: VM_DELETE=)
+  --ctx-admin <TOKENS>    : CtxAdmin tokens to setup in the context
+                            (env: VM_CTX_ADMIN_TOKENS=, comma delimited)
+  --timeout-secs          : Timeout for functions (env: VM_TIMEOUT_SECS=)
+                            (def: '10.0')
+  --max-heap-bytes        : Max memory for functions (env: VM_MAX_HEAP_BYTES)
+                            (def: '33554432')
+
+ctx-config                : Configure a context (ctxadmin)
+  --url       <URL>       : The server url (env: VM_URL=)
+  --token     <TOKEN>     : The ctxadmin api token to use (env: VM_TOKEN=)
+  --context   <CONTEXT>   : The context to configure (env: VM_CTX=)
+  --ctx-admin <TOKENS>    : CtxAdmin tokens to setup in the context
+                            (env: VM_CTX_ADMIN_TOKENS=, comma delimited)
+  --code      <CODE>      : Javascript code for the context (env: VM_CODE=)
+"#
     );
 }
 
@@ -204,7 +174,7 @@ async fn main() -> Result<()> {
     let arg = match arg_parse() {
         Ok(arg) => arg,
         Err(err) => {
-            eprintln!("-----\n{err}\n-----");
+            eprintln!("\n-----\n{err}\n-----");
             let _ = help();
             std::process::exit(1);
         }
