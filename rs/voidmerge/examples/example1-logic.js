@@ -1,8 +1,11 @@
 async function vm(req) {
   if (req.type === 'fnReq') {
+    if (req.body instanceof Uint8Array) {
+      req.body = new TextDecoder().decode(req.body);
+    }
     return {
       type: 'fnResOk',
-      body: 'this is a test',
+      body: `vm received input: ${JSON.stringify(req, null, 2)}`,
       headers: {
         'content-type': 'text/plain',
       }

@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 /// Input to a javascript execution.
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(
     tag = "type",
     rename_all = "camelCase",
@@ -20,7 +20,7 @@ pub enum JsRequest {
         /// The method ("GET" or "PUT").
         method: String,
         /// The request url.
-        url: String,
+        path: String,
         /// The body content.
         body: Option<Bytes>,
         /// Any sent headers.
@@ -273,6 +273,10 @@ impl TState {
             obj,
             obj_list_pagers: HashMap::new(),
         }
+    }
+
+    pub fn clear_pagers(&mut self) {
+        self.obj_list_pagers.clear();
     }
 
     pub fn new_pager(&mut self, pager: crate::obj::ObjWrapListPager) -> String {
@@ -634,6 +638,10 @@ impl JsThread {
                     };
                     let _ = cur_output.send(res);
 
+                    let mut state: TState = rust.take().unwrap();
+                    state.clear_pagers();
+                    rust.put(state).unwrap();
+
                     match cmd_recv.blocking_recv() {
                         None => return,
                         Some(Cmd::Kill) => return,
@@ -734,6 +742,11 @@ async function vm(req) {
 
         let js = JsExecDefault::create();
 
+        let res = js
+            .exec(setup.clone(), obj.clone(), req.clone())
+            .await
+            .unwrap();
+        println!("got: {res:#?}");
         let res = js.exec(setup, obj.clone(), req).await.unwrap();
         println!("got: {res:#?}");
 

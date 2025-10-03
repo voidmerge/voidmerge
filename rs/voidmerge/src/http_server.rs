@@ -94,10 +94,10 @@ pub async fn http_server(
             "/{ctx}/_vm_/config",
             axum::routing::put(route_ctx_config_put),
         )
-        .route("/{ctx}/{*rest}", axum::routing::get(route_fn_get))
+        .route("/{ctx}/{*path}", axum::routing::get(route_fn_get))
         .route("/{ctx}/", axum::routing::get(route_fn_get_def))
         .route("/{ctx}", axum::routing::get(route_fn_get_def))
-        .route("/{ctx}/{*rest}", axum::routing::put(route_fn_put))
+        .route("/{ctx}/{*path}", axum::routing::put(route_fn_put))
         .route("/{ctx}/", axum::routing::put(route_fn_put_def))
         .route("/{ctx}", axum::routing::put(route_fn_put_def));
 
@@ -187,7 +187,7 @@ fn hdr(m: &axum::http::HeaderMap) -> std::collections::HashMap<String, String> {
 
 async fn route_fn_get(
     headers: axum::http::HeaderMap,
-    axum::extract::Path((ctx, rest)): axum::extract::Path<(String, String)>,
+    axum::extract::Path((ctx, path)): axum::extract::Path<(String, String)>,
     axum::extract::ConnectInfo(_addr): axum::extract::ConnectInfo<
         std::net::SocketAddr,
     >,
@@ -195,7 +195,7 @@ async fn route_fn_get(
 ) -> AxumResult {
     let req = crate::js::JsRequest::FnReq {
         method: "GET".into(),
-        url: rest.into(),
+        path: path.into(),
         body: None,
         headers: hdr(&headers),
     };
@@ -212,7 +212,7 @@ async fn route_fn_get_def(
 ) -> AxumResult {
     let req = crate::js::JsRequest::FnReq {
         method: "GET".into(),
-        url: "".into(),
+        path: "".into(),
         body: None,
         headers: hdr(&headers),
     };
@@ -221,7 +221,7 @@ async fn route_fn_get_def(
 
 async fn route_fn_put(
     headers: axum::http::HeaderMap,
-    axum::extract::Path((ctx, rest)): axum::extract::Path<(String, String)>,
+    axum::extract::Path((ctx, path)): axum::extract::Path<(String, String)>,
     axum::extract::ConnectInfo(_addr): axum::extract::ConnectInfo<
         std::net::SocketAddr,
     >,
@@ -230,7 +230,7 @@ async fn route_fn_put(
 ) -> AxumResult {
     let req = crate::js::JsRequest::FnReq {
         method: "PUT".into(),
-        url: rest.into(),
+        path: path.into(),
         body: Some(payload),
         headers: hdr(&headers),
     };
@@ -248,7 +248,7 @@ async fn route_fn_put_def(
 ) -> AxumResult {
     let req = crate::js::JsRequest::FnReq {
         method: "PUT".into(),
-        url: "".into(),
+        path: "".into(),
         body: Some(payload),
         headers: hdr(&headers),
     };
