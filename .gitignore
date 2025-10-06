@@ -4,7 +4,11 @@
 *.gif
 target
 node_modules
-/ts/voidmerge-client/dist
 /ts/example1/dist/*
 !/ts/example1/dist/index.html
+/ts/test-integration/dist
+/ts/voidmerge-client/dist
+/ts/voidmerge-client/docs
+/ts/voidmerge-code/dist
+/ts/voidmerge-code/docs
 tsconfig.tsbuildinfo

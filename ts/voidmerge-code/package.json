@@ -1,0 +1,17 @@
+{
+  "name": "@voidmerge/voidmerge-code",
+  "version": "0.0.4",
+  "license": "(MIT or Apache-2.0)",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "type": "module",
+  "scripts": {
+    "doc": "typedoc",
+    "doc-open": "npm run doc && xdg-open docs/index.html",
+    "test": "npm test --include-workspace-root -w"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typedoc": "^0.28.11"
+  }
+}

@@ -305,165 +305,170 @@ impl TState {
     }
 }
 
-#[deno_core::op2]
-#[buffer]
-fn op_vm_to_utf8(#[string] input: &str) -> Vec<u8> {
-    input.as_bytes().to_vec()
-}
+mod deno_ext {
+    use super::*;
 
-#[deno_core::op2]
-#[string]
-fn op_vm_from_utf8(#[buffer] input: &[u8]) -> String {
-    String::from_utf8_lossy(input).to_string()
-}
-
-#[derive(Debug, serde::Deserialize)]
-struct PutMeta {
-    #[serde(rename = "appPath", default)]
-    app_path: String,
-
-    #[serde(rename = "createdSecs", default)]
-    created_secs: f64,
-
-    #[serde(rename = "expiresSecs", default)]
-    expires_secs: f64,
-}
-
-#[deno_core::op2(async)]
-#[serde]
-async fn op_obj_put(
-    state: Rc<RefCell<OpState>>,
-    #[buffer(copy)] data: bytes::Bytes,
-    #[serde] put_meta: PutMeta,
-) -> std::result::Result<Arc<str>, deno_core::error::CoreError> {
-    if let Some(TState { setup, obj, .. }) =
-        state.borrow().try_borrow::<TState>()
-    {
-        let meta = crate::obj::ObjMeta::new_context(
-            &setup.ctx,
-            &put_meta.app_path,
-            put_meta.created_secs,
-            put_meta.expires_secs,
-        );
-
-        obj.put(meta.clone(), data).await.map_err(|err| {
-            deno_core::error::CoreError::from(
-                deno_core::error::CoreErrorKind::Io(err),
-            )
-        })?;
-
-        Ok(meta.0)
-    } else {
-        Err(
-            deno_core::error::CoreErrorKind::Io(Error::other("bad state"))
-                .into(),
-        )
+    #[deno_core::op2]
+    #[buffer]
+    fn op_vm_to_utf8(#[string] input: &str) -> Vec<u8> {
+        input.as_bytes().to_vec()
     }
-}
 
-#[deno_core::op2(async)]
-#[buffer]
-async fn op_obj_get(
-    state: Rc<RefCell<OpState>>,
-    #[string] meta: String,
-) -> std::result::Result<Vec<u8>, deno_core::error::CoreError> {
-    if let Some(TState { setup, obj, .. }) =
-        state.borrow().try_borrow::<TState>()
-    {
-        let meta = crate::obj::ObjMeta(meta.into());
-        if meta.sys_prefix() != crate::obj::ObjMeta::SYS_CTX {
+    #[deno_core::op2]
+    #[string]
+    fn op_vm_from_utf8(#[buffer] input: &[u8]) -> String {
+        String::from_utf8_lossy(input).to_string()
+    }
+
+    #[derive(Debug, serde::Deserialize)]
+    struct PutMeta {
+        #[serde(rename = "appPath", default)]
+        app_path: String,
+
+        #[serde(rename = "createdSecs", default)]
+        created_secs: f64,
+
+        #[serde(rename = "expiresSecs", default)]
+        expires_secs: f64,
+    }
+
+    #[deno_core::op2(async)]
+    #[serde]
+    async fn op_obj_put(
+        state: Rc<RefCell<OpState>>,
+        #[buffer(copy)] data: bytes::Bytes,
+        #[serde] put_meta: PutMeta,
+    ) -> std::result::Result<Arc<str>, deno_core::error::CoreError> {
+        if let Some(TState { setup, obj, .. }) =
+            state.borrow().try_borrow::<TState>()
+        {
+            let meta = crate::obj::ObjMeta::new_context(
+                &setup.ctx,
+                &put_meta.app_path,
+                put_meta.created_secs,
+                put_meta.expires_secs,
+            );
+
+            obj.put(meta.clone(), data).await.map_err(|err| {
+                deno_core::error::CoreError::from(
+                    deno_core::error::CoreErrorKind::Io(err),
+                )
+            })?;
+
+            Ok(meta.0)
+        } else {
+            Err(
+                deno_core::error::CoreErrorKind::Io(Error::other("bad state"))
+                    .into(),
+            )
+        }
+    }
+
+    #[deno_core::op2(async)]
+    #[buffer]
+    async fn op_obj_get(
+        state: Rc<RefCell<OpState>>,
+        #[string] meta: String,
+    ) -> std::result::Result<Vec<u8>, deno_core::error::CoreError> {
+        if let Some(TState { setup, obj, .. }) =
+            state.borrow().try_borrow::<TState>()
+        {
+            let meta = crate::obj::ObjMeta(meta.into());
+            if meta.sys_prefix() != crate::obj::ObjMeta::SYS_CTX {
+                return Err(deno_core::error::CoreErrorKind::Io(Error::other(
+                    "invalid sys prefix",
+                ))
+                .into());
+            }
+            if meta.ctx() != &*setup.ctx {
+                return Err(deno_core::error::CoreErrorKind::Io(Error::other(
+                    "invalid sys context",
+                ))
+                .into());
+            }
+            obj.get(meta.into())
+                .await
+                .map_err(|err| deno_core::error::CoreErrorKind::Io(err).into())
+                .map(|o| o.to_vec())
+        } else {
+            Err(
+                deno_core::error::CoreErrorKind::Io(Error::other("bad state"))
+                    .into(),
+            )
+        }
+    }
+
+    #[deno_core::op2(async)]
+    #[string]
+    async fn op_obj_list(
+        state: Rc<RefCell<OpState>>,
+        #[string] path_prefix: String,
+    ) -> std::result::Result<String, deno_core::error::CoreError> {
+        let pager = if let Some(TState { setup, obj, .. }) =
+            state.borrow().try_borrow::<TState>()
+        {
+            let path = format!(
+                "{}/{}/{path_prefix}",
+                crate::obj::ObjMeta::SYS_CTX,
+                setup.ctx
+            );
+            obj.list(&path).await.map_err(|err| {
+                deno_core::error::CoreError::from(
+                    deno_core::error::CoreErrorKind::Io(err),
+                )
+            })?
+        } else {
             return Err(deno_core::error::CoreErrorKind::Io(Error::other(
-                "invalid sys prefix",
+                "bad state",
             ))
             .into());
-        }
-        if meta.ctx() != &*setup.ctx {
-            return Err(deno_core::error::CoreErrorKind::Io(Error::other(
-                "invalid sys context",
-            ))
-            .into());
-        }
-        obj.get(meta.into())
-            .await
-            .map_err(|err| deno_core::error::CoreErrorKind::Io(err).into())
-            .map(|o| o.to_vec())
-    } else {
-        Err(
-            deno_core::error::CoreErrorKind::Io(Error::other("bad state"))
-                .into(),
-        )
-    }
-}
+        };
 
-#[deno_core::op2(async)]
-#[string]
-async fn op_obj_list(
-    state: Rc<RefCell<OpState>>,
-    #[string] path_prefix: String,
-) -> std::result::Result<String, deno_core::error::CoreError> {
-    let pager = if let Some(TState { setup, obj, .. }) =
-        state.borrow().try_borrow::<TState>()
+        let ident = state.borrow_mut().borrow_mut::<TState>().new_pager(pager);
+
+        Ok(ident)
+    }
+
+    #[deno_core::op2(async)]
+    #[serde]
+    async fn op_obj_list_check(
+        state: Rc<RefCell<OpState>>,
+        #[string] ident: String,
+    ) -> std::result::Result<Option<Vec<Arc<str>>>, deno_core::error::CoreError>
     {
-        let path = format!(
-            "{}/{}/{path_prefix}",
-            crate::obj::ObjMeta::SYS_CTX,
-            setup.ctx
-        );
-        obj.list(&path).await.map_err(|err| {
-            deno_core::error::CoreError::from(
-                deno_core::error::CoreErrorKind::Io(err),
-            )
-        })?
-    } else {
-        return Err(deno_core::error::CoreErrorKind::Io(Error::other(
-            "bad state",
-        ))
-        .into());
-    };
+        let mut state = state.borrow_mut();
+        let state = state.borrow_mut::<TState>();
 
-    let ident = state.borrow_mut().borrow_mut::<TState>().new_pager(pager);
+        let pager = state.pull_pager(&ident);
 
-    Ok(ident)
-}
+        let mut pager = match pager {
+            None => return Ok(None),
+            Some(pager) => pager,
+        };
 
-#[deno_core::op2(async)]
-#[serde]
-async fn op_obj_list_check(
-    state: Rc<RefCell<OpState>>,
-    #[string] ident: String,
-) -> std::result::Result<Option<Vec<Arc<str>>>, deno_core::error::CoreError> {
-    let mut state = state.borrow_mut();
-    let state = state.borrow_mut::<TState>();
+        if let Some(d) = pager.next().await? {
+            state.push_pager(ident, pager);
+            return Ok(Some(d.into_iter().map(|m| m.0).collect()));
+        }
 
-    let pager = state.pull_pager(&ident);
-
-    let mut pager = match pager {
-        None => return Ok(None),
-        Some(pager) => pager,
-    };
-
-    if let Some(d) = pager.next().await? {
-        state.push_pager(ident, pager);
-        return Ok(Some(d.into_iter().map(|m| m.0).collect()));
+        Ok(None)
     }
 
-    Ok(None)
+    deno_core::extension!(
+        vm,
+        deps = [deno_console],
+        ops = [
+            op_vm_to_utf8,
+            op_vm_from_utf8,
+            op_obj_put,
+            op_obj_get,
+            op_obj_list,
+            op_obj_list_check,
+        ],
+        esm_entry_point = "ext:vm/entry.js",
+        esm = [ dir "src/js", "entry.js" ],
+    );
 }
-
-deno_core::extension!(
-    vm,
-    deps = [deno_console],
-    ops = [
-        op_vm_to_utf8,
-        op_vm_from_utf8,
-        op_obj_put,
-        op_obj_get,
-        op_obj_list,
-        op_obj_list_check,
-    ],
-    esm_entry_point = "ext:vm/entry.js",
-    esm = [ dir "src/js", "entry.js" ],
-);
 
 //rustyscript::deno_core::extension!(
 
@@ -572,7 +577,7 @@ impl JsThread {
             }
 
             loop {
-                let extensions = vec![vm::init()];
+                let extensions = vec![deno_ext::vm::init()];
 
                 let opts = rustyscript::RuntimeOptions {
                     extensions,
@@ -735,7 +740,7 @@ async function vm(req) {
 
         let req = JsRequest::FnReq {
             method: "GET".into(),
-            url: "http://www.www.www".into(),
+            path: "foo/bar".into(),
             body: None,
             headers: Default::default(),
         };

@@ -25,7 +25,7 @@ globalThis.objList = async function objList(pathPrefix, cb) {
   while (true) {
     const res = await vm.op_obj_list_check(ident);
     if (res) {
-      cb(res);
+      await cb(res);
     } else {
       return;
     }

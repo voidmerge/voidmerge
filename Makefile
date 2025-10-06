@@ -20,7 +20,9 @@ bump:
 	fi
 	sed -i 's/^\(version = "\)[^"]*"/\1$(ver)"/g' ./Cargo.toml
 	sed -i 's/^\(\s*"version": "\)[^"]*"/\1$(ver)"/g' ./ts/voidmerge-client/package.json
+	sed -i 's/^\(\s*"version": "\)[^"]*"/\1$(ver)"/g' ./ts/voidmerge-code/package.json
 	sed -i 's/^\(\s*"@voidmerge\/voidmerge-client": "\)[^"]*"/\1^$(ver)"/g' ./ts/example1/package.json
+	sed -i 's/^\(\s*"@voidmerge\/voidmerge-code": "\)[^"]*"/\1^$(ver)"/g' ./ts/test-integration/package.json
 	npm install
 	cargo update
 	$(MAKE) test

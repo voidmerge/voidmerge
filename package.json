@@ -2,8 +2,10 @@
   "name": "@voidmerge/monorepo",
   "private": true,
   "workspaces": [
+    "ts/example1",
+    "ts/test-integration",
     "ts/voidmerge-client",
-    "ts/example1"
+    "ts/voidmerge-code"
   ],
   "devDependencies": {
     "@types/jest": "^30.0.0",
@@ -17,7 +19,9 @@
     "lint": "prettier . --write && prettier . --check",
     "clean": "tsc --build --clean",
     "build:tsc": "tsc --build",
-    "build:bundle": "esbuild --bundle ts/example1/src/index.ts --minify --sourcemap --outfile=ts/example1/dist/browser.js",
+    "build:bundle:example1": "esbuild --bundle ts/example1/src/index.ts --minify --sourcemap --outfile=ts/example1/dist/browser.js",
+    "build:bundle:test-integration": "esbuild --bundle ts/test-integration/src/obj-simple.ts --sourcemap --outfile=ts/test-integration/dist/bundle-obj-simple.js",
+    "build:bundle": "npm run build:bundle:example1 && npm run build:bundle:test-integration",
     "build": "npm run build:tsc && npm run build:bundle",
     "jest": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js",
     "test": "npm run lint && npm run build && npm run jest"

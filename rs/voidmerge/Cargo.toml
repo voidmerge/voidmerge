@@ -28,7 +28,7 @@ minimist = { workspace = true, optional = true }
 #num_cpus = { workspace = true }
 #oqs = { workspace = true, default-features = false, features = [ "std", "ml_dsa" ], optional = true }
 #p256 = { workspace = true, optional = true }
-#rand = { workspace = true }
+rand = { workspace = true }
 reqwest = { workspace = true }
 rmp-serde = { workspace = true }
 rustyscript = { version = "0.12.3", default-features = false, features = ["web_stub", "url", "crypto", "console"] }
@@ -45,6 +45,7 @@ tracing-subscriber = { workspace = true, optional = true, features = [ "env-filt
 #zip = { workspace = true, optional = true }
 
 [dev-dependencies]
+tokio = { workspace = true, features = [ "full" ] }
 #tempfile = { workspace = true }
 
 [features]
