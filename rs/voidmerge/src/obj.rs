@@ -101,20 +101,19 @@ impl ObjMeta {
 
     /// Get the ctx associated with this meta path.
     pub fn ctx(&self) -> &str {
-        self.0.split('/').skip(1).next().unwrap_or("")
+        self.0.split('/').nth(1).unwrap_or("")
     }
 
     /// Get the app path associated with this meta path.
     pub fn app_path(&self) -> &str {
-        self.0.split('/').skip(2).next().unwrap_or("")
+        self.0.split('/').nth(2).unwrap_or("")
     }
 
     /// Get the created_secs associated with this meta path.
     pub fn created_secs(&self) -> f64 {
         self.0
             .split('/')
-            .skip(3)
-            .next()
+            .nth(3)
             .unwrap_or("")
             .parse()
             .unwrap_or(0.0)
@@ -124,8 +123,7 @@ impl ObjMeta {
     pub fn expires_secs(&self) -> f64 {
         self.0
             .split('/')
-            .skip(4)
-            .next()
+            .nth(4)
             .unwrap_or("")
             .parse()
             .unwrap_or(0.0)
@@ -247,11 +245,11 @@ impl Obj for ObjMem {
             let mut lock = self.0.lock().unwrap();
             lock.check_prune();
             let new_created_secs = mem_item.meta.created_secs();
-            if let Some(prev_item) = lock.map.insert(prefix.clone(), mem_item) {
-                if prev_item.meta.created_secs() >= new_created_secs {
-                    // whoops, put the previous one back
-                    lock.map.insert(prefix, prev_item);
-                }
+            if let Some(prev_item) = lock.map.insert(prefix.clone(), mem_item)
+                && prev_item.meta.created_secs() >= new_created_secs
+            {
+                // whoops, put the previous one back
+                lock.map.insert(prefix, prev_item);
             }
             Ok(())
         })
@@ -303,7 +301,7 @@ impl ObjWrap {
 
     /// Put an object into the store.
     pub async fn put(&self, meta: ObjMeta, obj: Bytes) -> Result<()> {
-        safe_str(&meta.app_path())
+        safe_str(meta.app_path())
             .map_err(|err| err.with_info("invalid path"))?;
         self.inner.put(meta.0, obj).await
     }
@@ -315,7 +313,7 @@ impl ObjWrap {
     ) -> Result<(Bytes, ObjMeta)> {
         let mut page = self.list(path_part).await?;
         while let Ok(Some(page)) = page.next().await {
-            for meta in page {
+            if let Some(meta) = page.into_iter().next() {
                 let obj = self.get(meta.clone()).await?;
                 return Ok((obj, meta));
             }

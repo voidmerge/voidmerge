@@ -53,12 +53,11 @@ impl axum::response::IntoResponse for crate::js::JsResponse {
                 {
                     let hdr = bld.headers_mut().unwrap();
                     for (k, v) in headers.iter() {
-                        if let Ok(v) = axum::http::HeaderValue::from_str(v) {
-                            if let Ok(k) =
+                        if let Ok(v) = axum::http::HeaderValue::from_str(v)
+                            && let Ok(k) =
                                 axum::http::HeaderName::from_bytes(k.as_bytes())
-                            {
-                                hdr.insert(k, v);
-                            }
+                        {
+                            hdr.insert(k, v);
                         }
                     }
                 }
@@ -195,7 +194,7 @@ async fn route_fn_get(
 ) -> AxumResult {
     let req = crate::js::JsRequest::FnReq {
         method: "GET".into(),
-        path: path.into(),
+        path,
         body: None,
         headers: hdr(&headers),
     };
@@ -230,7 +229,7 @@ async fn route_fn_put(
 ) -> AxumResult {
     let req = crate::js::JsRequest::FnReq {
         method: "PUT".into(),
-        path: path.into(),
+        path,
         body: Some(payload),
         headers: hdr(&headers),
     };

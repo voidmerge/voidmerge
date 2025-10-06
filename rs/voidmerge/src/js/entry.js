@@ -7,13 +7,13 @@ globalThis.console = {
 
 globalThis.TextEncoder = class TextEncoder {
   encode(s) {
-    return vm.op_vm_to_utf8(s);
+    return vm.op_to_utf8(s);
   }
 };
 
 globalThis.TextDecoder = class TextDecoder {
   decode(b) {
-    return vm.op_vm_from_utf8(b);
+    return vm.op_from_utf8(b);
   }
 };
 

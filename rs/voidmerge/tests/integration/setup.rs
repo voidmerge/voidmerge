@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 fn nonce() -> Arc<str> {
     let mut out = [0; 24];
@@ -26,35 +26,51 @@ impl std::ops::Deref for Test {
     }
 }
 
-static BUILT: tokio::sync::OnceCell<HashMap<String, Arc<str>>> = tokio::sync::OnceCell::const_new();
+static BUILT: tokio::sync::OnceCell<HashMap<String, Arc<str>>> =
+    tokio::sync::OnceCell::const_new();
 
 async fn get_built(name: &str) -> Arc<str> {
-    BUILT.get_or_init(|| async {
-        tokio::process::Command::new("npm")
-            .arg("ci")
-            .current_dir("../../")
-            .status()
-            .await
-            .expect("failed to run 'npm ci' command");
-        tokio::process::Command::new("npm")
-            .arg("run")
-            .arg("build")
-            .current_dir("../../")
-            .status()
-            .await
-            .expect("failed to run 'npm ci' command");
-        let mut map = HashMap::new();
+    BUILT
+        .get_or_init(|| async {
+            tokio::process::Command::new("npm")
+                .arg("ci")
+                .current_dir("../../")
+                .status()
+                .await
+                .expect("failed to run 'npm ci' command");
+            tokio::process::Command::new("npm")
+                .arg("run")
+                .arg("build")
+                .current_dir("../../")
+                .status()
+                .await
+                .expect("failed to run 'npm ci' command");
+            let mut map = HashMap::new();
 
-        let mut dir = tokio::fs::read_dir("../../ts/test-integration/dist").await.unwrap();
-        while let Some(e) = dir.next_entry().await.unwrap() {
-            let n = e.file_name().to_string_lossy().to_string();
-            if n.starts_with("bundle-") && n.ends_with(".js") {
-                map.insert(n.trim_start_matches("bundle-").trim_end_matches(".js").into(), tokio::fs::read_to_string(e.path()).await.unwrap().into());
+            let mut dir = tokio::fs::read_dir("../../ts/test-integration/dist")
+                .await
+                .unwrap();
+            while let Some(e) = dir.next_entry().await.unwrap() {
+                let n = e.file_name().to_string_lossy().to_string();
+                if n.starts_with("bundle-") && n.ends_with(".js") {
+                    map.insert(
+                        n.trim_start_matches("bundle-")
+                            .trim_end_matches(".js")
+                            .into(),
+                        tokio::fs::read_to_string(e.path())
+                            .await
+                            .unwrap()
+                            .into(),
+                    );
+                }
             }
-        }
 
-        map
-    }).await.get(name).expect("invalid code name").clone()
+            map
+        })
+        .await
+        .get(name)
+        .expect("invalid code name")
+        .clone()
 }
 
 impl Test {
@@ -97,7 +113,7 @@ impl Test {
     pub async fn test_fn_req<R: serde::de::DeserializeOwned>(
         &self,
         body: impl serde::Serialize,
-    ) -> R {
+    ) -> voidmerge::Result<R> {
         let body = bytes::Bytes::copy_from_slice(
             serde_json::to_string(&body).unwrap().as_bytes(),
         );
@@ -112,14 +128,13 @@ impl Test {
                     headers: Default::default(),
                 },
             )
-            .await
-            .unwrap();
+            .await?;
         match res {
             voidmerge::js::JsResponse::FnResOk { status, body, .. } => {
                 if status != 200.0 {
                     panic!("invalid status: {status}");
                 }
-                serde_json::from_slice::<R>(&body).unwrap()
+                Ok(serde_json::from_slice::<R>(&body).unwrap())
             }
             oth => panic!("invalid response: {oth:?}"),
         }

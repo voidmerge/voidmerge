@@ -4,7 +4,12 @@ VM.defineVoidMergeHandler(async (req) => {
   const reqType = req.type();
 
   if (req instanceof VM.RequestObjCheck) {
-    return VM.RequestObjCheck.okResponse();
+    const data = new TextDecoder().decode(req.data());
+    if (data === "hello") {
+      return VM.RequestObjCheck.okResponse();
+    } else {
+      throw new Error(`invalid data: ${data}`);
+    }
   } else if (req instanceof VM.RequestFn) {
     const pReq: {
       do: string;

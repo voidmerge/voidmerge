@@ -9,11 +9,24 @@ async fn obj_simple() {
         meta: String,
     }
 
-    let r1: R1 = test.test_fn_req(serde_json::json!({
-        "do": "put",
-        "k": "bob",
-        "v": "hello",
-    })).await;
+    assert!(
+        test.test_fn_req::<R1>(serde_json::json!({
+            "do": "put",
+            "k": "bob",
+            "v": "goodbye",
+        }))
+        .await
+        .is_err()
+    );
+
+    let r1: R1 = test
+        .test_fn_req(serde_json::json!({
+            "do": "put",
+            "k": "bob",
+            "v": "hello",
+        }))
+        .await
+        .unwrap();
 
     println!("put result: {r1:?}");
 
@@ -22,10 +35,13 @@ async fn obj_simple() {
         list: Vec<String>,
     }
 
-    let r2: R2 = test.test_fn_req(serde_json::json!({
-        "do": "list",
-        "k": "b",
-    })).await;
+    let r2: R2 = test
+        .test_fn_req(serde_json::json!({
+            "do": "list",
+            "k": "b",
+        }))
+        .await
+        .unwrap();
 
     println!("list result: {r2:?}");
 
@@ -36,10 +52,13 @@ async fn obj_simple() {
         val: String,
     }
 
-    let r3: R3 = test.test_fn_req(serde_json::json!({
-        "do": "get",
-        "k": r1.meta,
-    })).await;
+    let r3: R3 = test
+        .test_fn_req(serde_json::json!({
+            "do": "get",
+            "k": r1.meta,
+        }))
+        .await
+        .unwrap();
 
     println!("get result: {r3:?}");
 

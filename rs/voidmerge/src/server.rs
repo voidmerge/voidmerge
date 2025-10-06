@@ -168,7 +168,7 @@ impl Server {
         sys_admin: Vec<Arc<str>>,
     ) -> Result<()> {
         for token in sys_admin.iter() {
-            safe_str(&token)?;
+            safe_str(token)?;
         }
         let mut sys_setup = self.get_sys_setup();
         let mut set = std::collections::HashSet::new();

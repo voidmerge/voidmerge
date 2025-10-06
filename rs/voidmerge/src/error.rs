@@ -57,9 +57,7 @@ impl ErrorExt for Error {
         impl StdError for Err {}
 
         let err = Err(
-            self.into_inner()
-                .map(Into::into)
-                .unwrap_or_else(|| "none".into()),
+            self.into_inner().unwrap_or_else(|| "none".into()),
             info.into(),
         );
 

@@ -13,8 +13,14 @@ use std::sync::{Arc, Mutex};
     rename_all_fields = "camelCase"
 )]
 pub enum JsRequest {
-    /// yo
-    ObjCheckReq {},
+    /// Valitate an object to be stored.
+    ObjCheckReq {
+        /// The content payload of the object.
+        data: Bytes,
+
+        /// The metadata of the object.
+        meta: crate::obj::ObjMeta,
+    },
     /// Incoming function request.
     FnReq {
         /// The method ("GET" or "PUT").
@@ -40,8 +46,9 @@ fn status() -> f64 {
     rename_all_fields = "camelCase"
 )]
 pub enum JsResponse {
-    /// yo
-    ObjCheckResOk {},
+    /// Return this in case of ObjCheck request success.
+    ObjCheckResOk,
+
     /// Outgoing function response.
     FnResOk {
         /// The status code to respond with.
@@ -109,14 +116,17 @@ pub trait JsExec: 'static + Send + Sync {
 
 /// Dyn [JsExec] type.
 pub type DynJsExec = Arc<dyn JsExec + 'static + Send + Sync>;
+type WeakJsExec = std::sync::Weak<dyn JsExec + 'static + Send + Sync>;
 
 /// Default Javascript executor type.
-pub struct JsExecDefault;
+pub struct JsExecDefault(WeakJsExec);
 
 impl JsExecDefault {
     /// Get the default executor instance.
     pub fn create() -> DynJsExec {
-        let out: DynJsExec = Arc::new(JsExecDefault);
+        let out: DynJsExec = Arc::new_cyclic(|this: &std::sync::Weak<Self>| {
+            JsExecDefault(this.clone())
+        });
         out
     }
 }
@@ -129,7 +139,9 @@ impl JsExec for JsExecDefault {
         request: JsRequest,
     ) -> BoxFut<'_, Result<JsResponse>> {
         Box::pin(async move {
-            JS.get_or_init(Js::new).exec(setup, obj, request).await
+            JS.get_or_init(Js::new)
+                .exec(setup, obj, request, self.0.clone())
+                .await
         })
     }
 }
@@ -154,6 +166,7 @@ impl Js {
         setup: JsSetup,
         obj: crate::obj::ObjWrap,
         request: JsRequest,
+        weak: WeakJsExec,
     ) -> Result<JsResponse> {
         let mut found = self.pool.lock().unwrap().get_thread(&setup);
 
@@ -175,7 +188,7 @@ impl Js {
 
         let thread = found.unwrap();
 
-        let out = thread.exec(setup.clone(), obj, request).await;
+        let out = thread.exec(setup.clone(), obj, request, weak).await;
 
         if thread.is_ready() {
             self.pool.lock().unwrap().put_thread(setup, thread);
@@ -216,11 +229,7 @@ impl JsPool {
             }
         }
 
-        let count = self
-            .threads
-            .iter()
-            .map(|(_, list)| list.len())
-            .sum::<usize>();
+        let count = self.threads.values().map(|list| list.len()).sum::<usize>();
 
         if count < self.max_threads - 2 {
             // go ahead and make a new thread, we've got space
@@ -245,7 +254,7 @@ impl JsPool {
         permit: tokio::sync::OwnedSemaphorePermit,
         setup: &JsSetup,
     ) -> JsThread {
-        match self.get_thread(&setup) {
+        match self.get_thread(setup) {
             Some(thread) => thread,
             None => JsThread::new(permit),
         }
@@ -262,14 +271,20 @@ use std::rc::Rc;
 
 struct TState {
     pub setup: JsSetup,
+    pub weak: WeakJsExec,
     pub obj: crate::obj::ObjWrap,
     pub obj_list_pagers: HashMap<String, crate::obj::ObjWrapListPager>,
 }
 
 impl TState {
-    pub fn new(setup: JsSetup, obj: crate::obj::ObjWrap) -> Self {
+    pub fn new(
+        setup: JsSetup,
+        weak: WeakJsExec,
+        obj: crate::obj::ObjWrap,
+    ) -> Self {
         TState {
             setup,
+            weak,
             obj,
             obj_list_pagers: HashMap::new(),
         }
@@ -310,13 +325,13 @@ mod deno_ext {
 
     #[deno_core::op2]
     #[buffer]
-    fn op_vm_to_utf8(#[string] input: &str) -> Vec<u8> {
+    fn op_to_utf8(#[string] input: &str) -> Vec<u8> {
         input.as_bytes().to_vec()
     }
 
     #[deno_core::op2]
     #[string]
-    fn op_vm_from_utf8(#[buffer] input: &[u8]) -> String {
+    fn op_from_utf8(#[buffer] input: &[u8]) -> String {
         String::from_utf8_lossy(input).to_string()
     }
 
@@ -339,29 +354,61 @@ mod deno_ext {
         #[buffer(copy)] data: bytes::Bytes,
         #[serde] put_meta: PutMeta,
     ) -> std::result::Result<Arc<str>, deno_core::error::CoreError> {
-        if let Some(TState { setup, obj, .. }) =
-            state.borrow().try_borrow::<TState>()
-        {
-            let meta = crate::obj::ObjMeta::new_context(
-                &setup.ctx,
-                &put_meta.app_path,
-                put_meta.created_secs,
-                put_meta.expires_secs,
-            );
+        let (setup, weak, obj) = match state.borrow().try_borrow::<TState>() {
+            Some(TState {
+                setup, weak, obj, ..
+            }) => (setup.clone(), weak.clone(), obj.clone()),
+            _ => {
+                return Err(deno_core::error::CoreErrorKind::Io(Error::other(
+                    "bad state",
+                ))
+                .into());
+            }
+        };
 
-            obj.put(meta.clone(), data).await.map_err(|err| {
-                deno_core::error::CoreError::from(
-                    deno_core::error::CoreErrorKind::Io(err),
+        let meta = crate::obj::ObjMeta::new_context(
+            &setup.ctx,
+            &put_meta.app_path,
+            put_meta.created_secs,
+            put_meta.expires_secs,
+        );
+
+        if let Some(exec) = weak.upgrade() {
+            match exec
+                .exec(
+                    setup.clone(),
+                    obj.clone(),
+                    JsRequest::ObjCheckReq {
+                        data: data.clone(),
+                        meta: meta.clone(),
+                    },
                 )
-            })?;
-
-            Ok(meta.0)
+                .await
+            {
+                Ok(JsResponse::ObjCheckResOk) => (),
+                oth => {
+                    return Err(deno_core::error::CoreErrorKind::Io(
+                        Error::other(format!(
+                            "invalid obj check response: {oth:?}"
+                        )),
+                    )
+                    .into());
+                }
+            }
         } else {
-            Err(
-                deno_core::error::CoreErrorKind::Io(Error::other("bad state"))
-                    .into(),
-            )
+            return Err(deno_core::error::CoreErrorKind::Io(Error::other(
+                "aborting obj put due to shutdown",
+            ))
+            .into());
         }
+
+        obj.put(meta.clone(), data).await.map_err(|err| {
+            deno_core::error::CoreError::from(
+                deno_core::error::CoreErrorKind::Io(err),
+            )
+        })?;
+
+        Ok(meta.0)
     }
 
     #[deno_core::op2(async)]
@@ -370,32 +417,33 @@ mod deno_ext {
         state: Rc<RefCell<OpState>>,
         #[string] meta: String,
     ) -> std::result::Result<Vec<u8>, deno_core::error::CoreError> {
-        if let Some(TState { setup, obj, .. }) =
-            state.borrow().try_borrow::<TState>()
-        {
-            let meta = crate::obj::ObjMeta(meta.into());
-            if meta.sys_prefix() != crate::obj::ObjMeta::SYS_CTX {
+        let (setup, obj) = match state.borrow().try_borrow::<TState>() {
+            Some(TState { setup, obj, .. }) => (setup.clone(), obj.clone()),
+            _ => {
                 return Err(deno_core::error::CoreErrorKind::Io(Error::other(
-                    "invalid sys prefix",
+                    "bad state",
                 ))
                 .into());
             }
-            if meta.ctx() != &*setup.ctx {
-                return Err(deno_core::error::CoreErrorKind::Io(Error::other(
-                    "invalid sys context",
-                ))
-                .into());
-            }
-            obj.get(meta.into())
-                .await
-                .map_err(|err| deno_core::error::CoreErrorKind::Io(err).into())
-                .map(|o| o.to_vec())
-        } else {
-            Err(
-                deno_core::error::CoreErrorKind::Io(Error::other("bad state"))
-                    .into(),
-            )
+        };
+
+        let meta = crate::obj::ObjMeta(meta.into());
+        if meta.sys_prefix() != crate::obj::ObjMeta::SYS_CTX {
+            return Err(deno_core::error::CoreErrorKind::Io(Error::other(
+                "invalid sys prefix",
+            ))
+            .into());
         }
+        if meta.ctx() != &*setup.ctx {
+            return Err(deno_core::error::CoreErrorKind::Io(Error::other(
+                "invalid sys context",
+            ))
+            .into());
+        }
+        obj.get(meta)
+            .await
+            .map_err(|err| deno_core::error::CoreErrorKind::Io(err).into())
+            .map(|o| o.to_vec())
     }
 
     #[deno_core::op2(async)]
@@ -404,25 +452,27 @@ mod deno_ext {
         state: Rc<RefCell<OpState>>,
         #[string] path_prefix: String,
     ) -> std::result::Result<String, deno_core::error::CoreError> {
-        let pager = if let Some(TState { setup, obj, .. }) =
-            state.borrow().try_borrow::<TState>()
-        {
-            let path = format!(
-                "{}/{}/{path_prefix}",
-                crate::obj::ObjMeta::SYS_CTX,
-                setup.ctx
-            );
-            obj.list(&path).await.map_err(|err| {
-                deno_core::error::CoreError::from(
-                    deno_core::error::CoreErrorKind::Io(err),
-                )
-            })?
-        } else {
-            return Err(deno_core::error::CoreErrorKind::Io(Error::other(
-                "bad state",
-            ))
-            .into());
+        let (setup, obj) = match state.borrow().try_borrow::<TState>() {
+            Some(TState { setup, obj, .. }) => (setup.clone(), obj.clone()),
+            _ => {
+                return Err(deno_core::error::CoreErrorKind::Io(Error::other(
+                    "bad state",
+                ))
+                .into());
+            }
         };
+
+        let path = format!(
+            "{}/{}/{path_prefix}",
+            crate::obj::ObjMeta::SYS_CTX,
+            setup.ctx
+        );
+
+        let pager = obj.list(&path).await.map_err(|err| {
+            deno_core::error::CoreError::from(
+                deno_core::error::CoreErrorKind::Io(err),
+            )
+        })?;
 
         let ident = state.borrow_mut().borrow_mut::<TState>().new_pager(pager);
 
@@ -436,10 +486,8 @@ mod deno_ext {
         #[string] ident: String,
     ) -> std::result::Result<Option<Vec<Arc<str>>>, deno_core::error::CoreError>
     {
-        let mut state = state.borrow_mut();
-        let state = state.borrow_mut::<TState>();
-
-        let pager = state.pull_pager(&ident);
+        let pager =
+            state.borrow_mut().borrow_mut::<TState>().pull_pager(&ident);
 
         let mut pager = match pager {
             None => return Ok(None),
@@ -447,7 +495,10 @@ mod deno_ext {
         };
 
         if let Some(d) = pager.next().await? {
-            state.push_pager(ident, pager);
+            state
+                .borrow_mut()
+                .borrow_mut::<TState>()
+                .push_pager(ident, pager);
             return Ok(Some(d.into_iter().map(|m| m.0).collect()));
         }
 
@@ -458,8 +509,8 @@ mod deno_ext {
         vm,
         deps = [deno_console],
         ops = [
-            op_vm_to_utf8,
-            op_vm_from_utf8,
+            op_to_utf8,
+            op_from_utf8,
             op_obj_put,
             op_obj_get,
             op_obj_list,
@@ -472,12 +523,14 @@ mod deno_ext {
 
 //rustyscript::deno_core::extension!(
 
+#[allow(clippy::large_enum_variant)]
 enum Cmd {
     Kill,
     Exec {
         setup: JsSetup,
         obj: crate::obj::ObjWrap,
         request: JsRequest,
+        weak: WeakJsExec,
         output: tokio::sync::oneshot::Sender<Result<JsResponse>>,
     },
 }
@@ -515,6 +568,7 @@ impl JsThread {
         setup: JsSetup,
         obj: crate::obj::ObjWrap,
         request: JsRequest,
+        weak: WeakJsExec,
     ) -> Result<JsResponse> {
         let (output, r) = tokio::sync::oneshot::channel();
         self.cmd_send
@@ -524,6 +578,7 @@ impl JsThread {
                 setup,
                 obj,
                 request,
+                weak,
                 output,
             })
             .await
@@ -551,13 +606,13 @@ impl JsThread {
         let on_drop = D(is_ready.clone());
 
         let (cmd_send, mut cmd_recv) = tokio::sync::mpsc::channel(32);
-        let handle = tokio::runtime::Handle::current();
         let thread = std::thread::spawn(move || {
             let on_drop = on_drop;
 
             let mut cur_setup;
             let mut cur_obj;
             let mut cur_request;
+            let mut cur_weak;
             let mut cur_output;
 
             match cmd_recv.blocking_recv() {
@@ -567,11 +622,13 @@ impl JsThread {
                     setup,
                     obj,
                     request,
+                    weak,
                     output,
                 }) => {
                     cur_setup = setup;
                     cur_obj = obj;
                     cur_request = request;
+                    cur_weak = weak;
                     cur_output = output;
                 }
             }
@@ -586,13 +643,14 @@ impl JsThread {
                     ..Default::default()
                 };
 
-                let mut rust = rustyscript::Runtime::with_tokio_runtime_handle(
-                    opts,
-                    handle.clone(),
-                )
-                .unwrap();
+                let mut rust = rustyscript::Runtime::new(opts).unwrap();
 
-                rust.put(TState::new(cur_setup.clone(), cur_obj)).unwrap();
+                rust.put(TState::new(
+                    cur_setup.clone(),
+                    cur_weak.clone(),
+                    cur_obj,
+                ))
+                .unwrap();
 
                 if let Err(err) = rust.eval::<()>(&cur_setup.code) {
                     on_drop.not_ready();
@@ -654,15 +712,16 @@ impl JsThread {
                             setup,
                             obj,
                             request,
+                            weak,
                             output,
                         }) => {
                             let reset = cur_setup != setup;
                             cur_setup = setup;
                             cur_obj = obj;
                             cur_request = request;
+                            cur_weak = weak;
                             cur_output = output;
                             if reset {
-                                println!("reset");
                                 break;
                             }
                         }
@@ -692,43 +751,43 @@ mod test {
             ctx: "bobbo".into(),
             code: "
 async function vm(req) {
-    const b = (new TextEncoder()).encode('hello');
-    console.log('encode', b, b instanceof Uint8Array);
-    const s = (new TextDecoder()).decode(b);
-    console.log('decode', s);
+    if (req.type === 'objCheckReq') {
+        return { type: 'objCheckResOk' };
+    } else if (req.type === 'fnReq') {
+        const b = (new TextEncoder()).encode('hello');
+        console.log('encode', b, b instanceof Uint8Array);
+        const s = (new TextDecoder()).decode(b);
+        console.log('decode', s);
 
-    const t = Date.now() / 1000.0;
+        const t = Date.now() / 1000.0;
 
-    const meta = await objPut(
-        (new TextEncoder()).encode('hello'),
-        {
-            appPath: 'test',
-            createdSecs: t,
+        const meta = await objPut(
+            (new TextEncoder()).encode('hello'),
+            {
+                appPath: 'test',
+                createdSecs: t,
+            }
+        );
+        console.log(`put returned meta: ${meta}`);
+
+        const res = (new TextDecoder()).decode(await objGet(meta));
+        console.log(`fetched: ${res}`);
+
+        let count = 0;
+        await objList('t', async (m) => {
+            count += 1;
+            console.log('list got', JSON.stringify(m));
+        });
+
+        if (count !== 1) {
+            throw new Error(`failed to list the item`);
         }
-    );
-    console.log(`put returned meta: ${meta}`);
 
-    const res = (new TextDecoder()).decode(await objGet(meta));
-    console.log(`fetched: ${res}`);
+        if (res !== 'hello') {
+            throw new Error(`bad response, expected 'hello', got: ${res}`);
+        }
 
-    let count = 0;
-    await objList('t', (m) => {
-        count += 1;
-        console.log('list got', JSON.stringify(m));
-    });
-
-    if (count !== 1) {
-        throw new Error(`failed to list the item`);
-    }
-
-    if (res !== 'hello') {
-        throw new Error(`bad response, expected 'hello', got: ${res}`);
-    }
-
-    if (req.type === 'fnReq') {
-        return {
-            type: 'fnResOk',
-        };
+        return { type: 'fnResOk' };
     } else {
         throw new Error(`invalid type: ${req.type}`);
     }

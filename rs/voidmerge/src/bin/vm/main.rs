@@ -175,7 +175,7 @@ async fn main() -> Result<()> {
         Ok(arg) => arg,
         Err(err) => {
             eprintln!("\n-----\n{err}\n-----");
-            let _ = help();
+            help();
             std::process::exit(1);
         }
     };
