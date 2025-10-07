@@ -38,14 +38,17 @@ impl ObjFile {
             root
         };
 
-        let out: DynObj = Arc::new_cyclic(|this: &std::sync::Weak<ObjFile>| {
+        let out = Arc::new_cyclic(|this: &std::sync::Weak<ObjFile>| {
             let this = this.clone();
             let task = tokio::task::spawn(async move {
                 loop {
                     tokio::time::sleep(std::time::Duration::from_secs(10))
                         .await;
                     if let Some(this) = this.upgrade() {
-                        this.inner.lock().unwrap().prune();
+                        let path_list = this.inner.lock().unwrap().prune();
+                        for path in path_list {
+                            destroy(path).await;
+                        }
                     } else {
                         return;
                     }
@@ -59,7 +62,145 @@ impl ObjFile {
                 tempdir,
             }
         });
+
+        out.load().await?;
+
+        let out: DynObj = out;
+
         Ok(out)
+    }
+
+    async fn load(&self) -> Result<()> {
+        let mut dir = tokio::fs::read_dir(&self.root).await?;
+        while let Some(e) = dir.next_entry().await? {
+            if e.file_type().await?.is_dir() {
+                let name = e.file_name().to_string_lossy().to_string();
+                if name.len() == 1 {
+                    self.load_sys_prefix(e.path(), name.into()).await?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn load_sys_prefix(
+        &self,
+        path: std::path::PathBuf,
+        sys_prefix: Arc<str>,
+    ) -> Result<()> {
+        let mut dir = tokio::fs::read_dir(&path).await?;
+        while let Some(e) = dir.next_entry().await? {
+            if e.file_type().await?.is_dir() {
+                let name = e.file_name().to_string_lossy().to_string();
+                self.load_ctx(e.path(), sys_prefix.clone(), name.into())
+                    .await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn load_ctx(
+        &self,
+        path: std::path::PathBuf,
+        sys_prefix: Arc<str>,
+        ctx: Arc<str>,
+    ) -> Result<()> {
+        let mut dir = tokio::fs::read_dir(&path).await?;
+        while let Some(e) = dir.next_entry().await? {
+            if e.file_type().await?.is_dir() {
+                self.load_h1(e.path(), sys_prefix.clone(), ctx.clone())
+                    .await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn load_h1(
+        &self,
+        path: std::path::PathBuf,
+        sys_prefix: Arc<str>,
+        ctx: Arc<str>,
+    ) -> Result<()> {
+        let mut dir = tokio::fs::read_dir(&path).await?;
+        while let Some(e) = dir.next_entry().await? {
+            if e.file_type().await?.is_dir() {
+                self.load_h2(e.path(), sys_prefix.clone(), ctx.clone())
+                    .await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn load_h2(
+        &self,
+        path: std::path::PathBuf,
+        sys_prefix: Arc<str>,
+        ctx: Arc<str>,
+    ) -> Result<()> {
+        let mut dir = tokio::fs::read_dir(&path).await?;
+        while let Some(e) = dir.next_entry().await? {
+            if e.file_type().await?.is_file() {
+                let name = e.file_name().to_string_lossy().to_string();
+                if name.starts_with("meta-") {
+                    let hash = name.trim_start_matches("meta-");
+                    self.load_meta(
+                        e.path(),
+                        path.join(format!("data-{hash}")),
+                        sys_prefix.clone(),
+                        ctx.clone(),
+                    )
+                    .await?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn load_meta(
+        &self,
+        meta_path: std::path::PathBuf,
+        data_path: std::path::PathBuf,
+        sys_prefix: Arc<str>,
+        ctx: Arc<str>,
+    ) -> Result<()> {
+        let meta: Arc<str> = tokio::fs::read_to_string(&meta_path)
+            .await?
+            .trim()
+            .to_string()
+            .into();
+        let meta = ObjMeta(meta);
+        if meta.sys_prefix() != &*sys_prefix || meta.ctx() != &*ctx {
+            tracing::warn!(?meta_path, "corrupt obj store on disk");
+            return Ok(());
+        }
+        if !tokio::fs::metadata(&data_path).await?.is_file() {
+            tracing::warn!(?data_path, "corrupt obj store on disk");
+            return Ok(());
+        }
+
+        let sys_prefix = meta.sys_prefix();
+        let ctx = meta.ctx();
+        let app_path = meta.app_path();
+
+        let prefix: Arc<str> = format!("{sys_prefix}/{ctx}/{app_path}").into();
+
+        let d = self
+            .inner
+            .lock()
+            .unwrap()
+            .load(prefix, meta, meta_path, data_path);
+
+        if let Some((d1, d2)) = d {
+            destroy(d1).await;
+            destroy(d2).await;
+        }
+
+        Ok(())
     }
 }
 
@@ -140,15 +281,31 @@ impl Obj for ObjFile {
             tokio::fs::write(&data_path, data).await?;
 
             // finally if all the writes succeeded, update our map
-            self.inner.lock().unwrap().put(prefix, meta, data_path);
+            let d = self
+                .inner
+                .lock()
+                .unwrap()
+                .put(prefix, meta, meta_path, data_path);
+
+            if let Some((d1, d2)) = d {
+                destroy(d1).await;
+                destroy(d2).await;
+            }
 
             Ok(())
         })
     }
 }
 
+async fn destroy(path: std::path::PathBuf) {
+    if let Err(err) = tokio::fs::remove_file(&path).await {
+        tracing::warn!(?err, "failed to remove object store path");
+    }
+}
+
 struct Item {
     pub meta: ObjMeta,
+    pub meta_path: std::path::PathBuf,
     pub data_path: std::path::PathBuf,
 }
 
@@ -159,12 +316,53 @@ impl Inner {
         Self(HashMap::new())
     }
 
-    pub fn prune(&mut self) {
+    pub fn load(
+        &mut self,
+        prefix: Arc<str>,
+        meta: ObjMeta,
+        meta_path: std::path::PathBuf,
+        data_path: std::path::PathBuf,
+    ) -> Option<(std::path::PathBuf, std::path::PathBuf)> {
         let now = sys_now();
+        let mx = meta.expires_secs();
+        if mx > 0.0 && mx < now {
+            return Some((meta_path, data_path));
+        }
+        let created = meta.created_secs();
+        if let Some(orig) = self.0.insert(
+            prefix.clone(),
+            Item {
+                meta,
+                meta_path: meta_path.clone(),
+                data_path: data_path.clone(),
+            },
+        ) {
+            if orig.meta.created_secs() >= created {
+                // whoops, put the original back
+                self.0.insert(prefix, orig);
+                Some((meta_path, data_path))
+            } else {
+                Some((orig.meta_path, orig.data_path))
+            }
+        } else {
+            None
+        }
+    }
+
+    pub fn prune(&mut self) -> Vec<std::path::PathBuf> {
+        let now = sys_now();
+        let mut destroy = Vec::new();
         self.0.retain(|_, v| {
             let x = v.meta.expires_secs();
-            x == 0.0 || x > now
+            if x == 0.0 || x > now {
+                true
+            } else {
+                destroy.push(v.meta_path.clone());
+                destroy.push(v.data_path.clone());
+                false
+            }
         });
+        destroy
     }
 
     pub fn get(&self, meta: ObjMeta) -> Result<std::path::PathBuf> {
@@ -200,25 +398,36 @@ impl Inner {
         &mut self,
         prefix: Arc<str>,
         meta: ObjMeta,
+        meta_path: std::path::PathBuf,
         data_path: std::path::PathBuf,
-    ) {
+    ) -> Option<(std::path::PathBuf, std::path::PathBuf)> {
         let now = sys_now();
         let mx = meta.expires_secs();
         if mx > 0.0 && mx < now {
-            return;
+            return Some((meta_path, data_path));
         }
         let created = meta.created_secs();
-        if let Some(orig) =
-            self.0.insert(prefix.clone(), Item { meta, data_path })
-        {
+        if let Some(orig) = self.0.insert(
+            prefix.clone(),
+            Item {
+                meta,
+                meta_path: meta_path.clone(),
+                data_path: data_path.clone(),
+            },
+        ) {
             let ox = orig.meta.expires_secs();
             if ox > 0.0 && ox < now {
-                return;
+                return Some((orig.meta_path, orig.data_path));
             }
             if orig.meta.created_secs() >= created {
                 // whoops, put the original back
                 self.0.insert(prefix, orig);
+                Some((meta_path, data_path))
+            } else {
+                Some((orig.meta_path, orig.data_path))
             }
+        } else {
+            None
         }
     }
 }
@@ -246,6 +455,27 @@ mod test {
         assert_eq!("c/AAAA/bob/1.0/0.0", &*item);
 
         let got = of.get("c/AAAA/bob/1.0/0.0".into()).await.unwrap();
+        assert_eq!(&b"hello"[..], &got[..]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn obj_load() {
+        let tmp = tempfile::tempdir().unwrap();
+
+        let of1 = ObjFile::create(Some(tmp.path().into())).await.unwrap();
+
+        of1.put(
+            "c/AAAA/bob/1.0/0.0".into(),
+            bytes::Bytes::from_static(b"hello"),
+        )
+        .await
+        .unwrap();
+
+        drop(of1);
+
+        let of2 = ObjFile::create(Some(tmp.path().into())).await.unwrap();
+
+        let got = of2.get("c/AAAA/bob/1.0/0.0".into()).await.unwrap();
         assert_eq!(&b"hello"[..], &got[..]);
     }
 }
