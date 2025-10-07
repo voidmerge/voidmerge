@@ -35,8 +35,9 @@ rustyscript = { version = "0.12.3", default-features = false, features = ["web_s
 serde = { workspace = true, features = [ "derive", "rc" ] }
 serde_json = { workspace = true }
 #serde_v8 = { workspace = true, optional = true }
-#sha2 = { workspace = true }
-tokio = { workspace = true, features = [ "sync", "fs" ] }
+sha2 = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = [ "sync", "fs", "rt" ] }
 tower-http = { workspace = true, optional = true, features = [ "cors" ] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, optional = true, features = [ "env-filter" ] }
@@ -46,7 +47,6 @@ tracing-subscriber = { workspace = true, optional = true, features = [ "env-filt
 
 [dev-dependencies]
 tokio = { workspace = true, features = [ "full" ] }
-#tempfile = { workspace = true }
 
 [features]
 #default = [ "http-server", "vm", "v8", "p256", "ml_dsa", "ed25519" ]

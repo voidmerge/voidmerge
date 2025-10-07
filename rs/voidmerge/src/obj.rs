@@ -3,7 +3,9 @@
 use crate::*;
 use bytes::Bytes;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+
+pub mod obj_file;
 
 /// Response type for an [Obj::list] request.
 pub trait ObjListPager {
@@ -33,9 +35,28 @@ pub trait Obj: 'static + Send + Sync {
 pub type DynObj = Arc<dyn Obj + 'static + Send + Sync>;
 
 /// Meta-data related to an object.
-#[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Default,
+    Debug,
+    Clone,
+    serde::Serialize,
+    serde::Deserialize,
+    PartialOrd,
+    Ord,
+    PartialEq,
+    Eq,
+    Hash,
+)]
 #[serde(transparent)]
 pub struct ObjMeta(pub Arc<str>);
+
+impl std::ops::Deref for ObjMeta {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 impl std::fmt::Display for ObjMeta {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -129,134 +150,6 @@ impl ObjMeta {
             .unwrap_or(0.0)
     }
 }
-
-#[derive(Debug, Default)]
-struct MemItem {
-    pub meta: ObjMeta,
-    pub obj: Bytes,
-}
-
-impl MemItem {
-    fn parse(path: Arc<str>) -> Result<(Arc<str>, Self)> {
-        let out = Self {
-            meta: ObjMeta(path),
-            obj: Default::default(),
-        };
-        let prefix = format!(
-            "{}/{}/{}",
-            out.meta.sys_prefix(),
-            out.meta.ctx(),
-            out.meta.app_path(),
-        )
-        .into();
-        Ok((prefix, out))
-    }
-}
-
-struct ObjMemInner {
-    map: HashMap<Arc<str>, MemItem>,
-    last_prune: std::time::Instant,
-}
-
-impl Default for ObjMemInner {
-    fn default() -> Self {
-        Self {
-            map: Default::default(),
-            last_prune: std::time::Instant::now(),
-        }
-    }
-}
-
-impl ObjMemInner {
-    pub fn check_prune(&mut self) {
-        let now = std::time::Instant::now();
-        if now - self.last_prune < std::time::Duration::from_secs(5) {
-            return;
-        }
-        self.last_prune = now;
-        let now = sys_now();
-        self.map.retain(|_, mem_item| {
-            mem_item.meta.expires_secs() == 0.0
-                || mem_item.meta.expires_secs() > now
-        });
-    }
-}
-
-/// An in-memory object store.
-pub struct ObjMem(Mutex<ObjMemInner>);
-
-impl ObjMem {
-    /// Create a new in-memory object store.
-    pub fn create() -> DynObj {
-        Arc::new(Self(Default::default()))
-    }
-}
-
-impl Obj for ObjMem {
-    fn get(&self, path: Arc<str>) -> BoxFut<'_, Result<Bytes>> {
-        Box::pin(async move {
-            let (prefix, _mem_item) = MemItem::parse(path.clone())?;
-            let mut lock = self.0.lock().unwrap();
-            lock.check_prune();
-            lock.map
-                .get(&prefix)
-                .ok_or_else(|| {
-                    Error::not_found(format!(
-                        "{path} not found in object store"
-                    ))
-                })
-                .map(|mem_item| mem_item.obj.clone())
-        })
-    }
-
-    fn list(
-        &self,
-        path_prefix: Arc<str>,
-    ) -> BoxFut<'_, Result<DynObjListPager>> {
-        Box::pin(async move {
-            let mut out = Vec::new();
-            {
-                let mut lock = self.0.lock().unwrap();
-                lock.check_prune();
-                for (prefix, mem_item) in lock.map.iter() {
-                    if prefix.starts_with(&*path_prefix) {
-                        out.push(mem_item.meta.0.clone());
-                    }
-                }
-            }
-            struct P(Option<Vec<Arc<str>>>);
-            impl ObjListPager for P {
-                fn next(
-                    &mut self,
-                ) -> BoxFut<'_, Result<Option<Vec<Arc<str>>>>> {
-                    let out = Ok(self.0.take());
-                    Box::pin(async move { out })
-                }
-            }
-            let out: DynObjListPager = Box::new(P(Some(out)));
-            Ok(out)
-        })
-    }
-
-    fn put(&self, path: Arc<str>, obj: Bytes) -> BoxFut<'_, Result<()>> {
-        Box::pin(async move {
-            let (prefix, mut mem_item) = MemItem::parse(path)?;
-            mem_item.obj = obj;
-            let mut lock = self.0.lock().unwrap();
-            lock.check_prune();
-            let new_created_secs = mem_item.meta.created_secs();
-            if let Some(prev_item) = lock.map.insert(prefix.clone(), mem_item)
-                && prev_item.meta.created_secs() >= new_created_secs
-            {
-                // whoops, put the previous one back
-                lock.map.insert(prefix, prev_item);
-            }
-            Ok(())
-        })
-    }
-}
-
-// -- pub(crate) internal types -- //
 
 /// Pager for [ObjWrap::list].
 pub struct ObjWrapListPager(DynObjListPager);
@@ -429,7 +322,9 @@ mod test {
 
     #[tokio::test]
     async fn obj_mem() {
-        let o = ObjWrap::new(ObjMem::create()).await.unwrap();
+        let o = ObjWrap::new(obj_file::ObjFile::create(None).await.unwrap())
+            .await
+            .unwrap();
 
         let ctx: Arc<str> = "AAAA".into();
 

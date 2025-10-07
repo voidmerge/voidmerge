@@ -31,6 +31,9 @@ fn sys_now() -> f64 {
 
 /// Check for safe characters to be used in contexts / paths / etc.
 fn safe_str(s: &str) -> Result<()> {
+    if s.is_empty() {
+        return Err(Error::other("string cannot be empty"));
+    }
     for b in s.as_bytes() {
         if (*b >= b'a' && *b <= b'z')
             || (*b >= b'A' && *b <= b'Z')

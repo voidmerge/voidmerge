@@ -744,7 +744,7 @@ mod test {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn js_simple() {
-        let obj = obj::ObjMem::create();
+        let obj = obj::obj_file::ObjFile::create(None).await.unwrap();
         let obj = obj::ObjWrap::new(obj).await.unwrap();
 
         let setup = JsSetup {

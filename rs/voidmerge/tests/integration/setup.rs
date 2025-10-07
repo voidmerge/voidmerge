@@ -80,10 +80,12 @@ impl Test {
         let ctx = nonce();
         let admin = nonce();
 
-        let obj = voidmerge::obj::ObjMem::create();
+        let obj = voidmerge::obj::obj_file::ObjFile::create(None)
+            .await
+            .unwrap();
         let js = voidmerge::js::JsExecDefault::create();
         let server = voidmerge::server::Server::new(obj, js).await.unwrap();
-        server.inject_sys_admin(vec![admin.clone()]).await.unwrap();
+        server.set_sys_admin(vec![admin.clone()]).await.unwrap();
         server
             .ctx_setup_put(
                 admin.clone(),

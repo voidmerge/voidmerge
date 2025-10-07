@@ -162,19 +162,13 @@ impl Server {
             .ok_or_else(|| Error::not_found(format!("no context: {ctx}")))
     }
 
-    /// Inject sysadmin tokens.
-    pub async fn inject_sys_admin(
-        &self,
-        sys_admin: Vec<Arc<str>>,
-    ) -> Result<()> {
+    /// Set sysadmin tokens.
+    pub async fn set_sys_admin(&self, sys_admin: Vec<Arc<str>>) -> Result<()> {
         for token in sys_admin.iter() {
             safe_str(token)?;
         }
         let mut sys_setup = self.get_sys_setup();
-        let mut set = std::collections::HashSet::new();
-        set.extend(sys_admin);
-        set.extend(std::mem::take(&mut sys_setup.sys_admin));
-        sys_setup.sys_admin = set.into_iter().collect();
+        sys_setup.sys_admin = sys_admin;
         self.obj.set_sys_setup(sys_setup.clone()).await?;
         *self.sys_setup.lock().unwrap() = sys_setup;
         Ok(())

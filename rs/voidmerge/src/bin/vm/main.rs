@@ -11,10 +11,12 @@ Usage: vm <COMMAND> <OPTIONS>
 help -h --help            : Print this help
 
 serve                     : Run the VoidMerge HTTP server
-  --sys-admin <SYS_ADMIN> : SysAdmin tokens to inject during startup
+  --sys-admin <SYS_ADMIN> : SysAdmin tokens to set during startup
                             (env: VM_SYS_ADMIN_TOKENS=, comma delimited)
   --http-addr <HTTP_ADDR> : Http server address to bind (env: VM_HTTP_ADDR=)
                             (def: '[::]:8080')
+  --store <PATH>          : Path location for object store file persistance.
+                            (env: VM_STORE=) (def: use a temp dir)
 
 health                    : Execute a health check against a server
   --url       <URL>       : The server url (env: VM_URL=)
@@ -86,6 +88,7 @@ fn arg_parse() -> Result<Arg> {
             args.entry("sys-admin".into()).or_default();
             args.set_default_env("http-addr", "VM_HTTP_ADDR");
             args.set_default("http-addr", "[::]:8080");
+            args.set_default_env("store", "VM_STORE");
             Ok(Arg::Serve {
                 sys_admin: args
                     .to_list_str("sys-admin")
@@ -93,6 +96,7 @@ fn arg_parse() -> Result<Arg> {
                     .map(|s| s.into())
                     .collect::<Vec<_>>(),
                 http_addr: exp!(args, "http-addr").into(),
+                store: args.as_one_path("store").map(|p| p.to_owned()),
             })
         }
         "health" => {
@@ -188,6 +192,7 @@ enum Arg {
     Serve {
         sys_admin: Vec<Arc<str>>,
         http_addr: String,
+        store: Option<std::path::PathBuf>,
     },
     Health {
         url: String,
@@ -220,6 +225,7 @@ impl Arg {
             Self::Serve {
                 sys_admin,
                 http_addr,
+                store,
             } => {
                 let http_addr: std::net::SocketAddr =
                     http_addr.parse().map_err(|err| {
@@ -234,13 +240,11 @@ impl Arg {
                     }
                 });
                 let server = server::Server::new(
-                    obj::ObjMem::create(),
+                    obj::obj_file::ObjFile::create(store).await?,
                     js::JsExecDefault::create(),
                 )
                 .await?;
-                if !sys_admin.is_empty() {
-                    server.inject_sys_admin(sys_admin).await?;
-                }
+                server.set_sys_admin(sys_admin).await?;
                 http_server::http_server(s, http_addr, server).await
             }
             Self::Health { url } => {
