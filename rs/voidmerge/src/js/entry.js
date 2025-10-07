@@ -19,15 +19,4 @@ globalThis.TextDecoder = class TextDecoder {
 
 globalThis.objPut = vm.op_obj_put;
 globalThis.objGet = vm.op_obj_get;
-globalThis.objList = async function objList(pathPrefix, cb) {
-  const ident = await vm.op_obj_list(pathPrefix);
-
-  while (true) {
-    const res = await vm.op_obj_list_check(ident);
-    if (res) {
-      await cb(res);
-    } else {
-      return;
-    }
-  }
-}
+globalThis.objList = vm.op_obj_list;

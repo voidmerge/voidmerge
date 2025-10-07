@@ -1,6 +1,7 @@
 //! File-backed object store.
 
 use crate::obj::*;
+use std::collections::BTreeMap;
 use std::sync::Mutex;
 
 /// File-backed object store.
@@ -183,17 +184,7 @@ impl ObjFile {
             return Ok(());
         }
 
-        let sys_prefix = meta.sys_prefix();
-        let ctx = meta.ctx();
-        let app_path = meta.app_path();
-
-        let prefix: Arc<str> = format!("{sys_prefix}/{ctx}/{app_path}").into();
-
-        let d = self
-            .inner
-            .lock()
-            .unwrap()
-            .load(prefix, meta, meta_path, data_path);
+        let d = self.inner.lock().unwrap().put(meta, meta_path, data_path);
 
         if let Some((d1, d2)) = d {
             destroy(d1).await;
@@ -215,28 +206,15 @@ impl Obj for ObjFile {
     fn list(
         &self,
         path_prefix: Arc<str>,
-    ) -> BoxFut<'_, Result<DynObjListPager>> {
+        created_gte: f64,
+        limit: u32,
+    ) -> BoxFut<'_, Result<Vec<Arc<str>>>> {
         Box::pin(async move {
-            let list = self.inner.lock().unwrap().list(path_prefix);
-            struct P(std::collections::VecDeque<Arc<str>>);
-            impl ObjListPager for P {
-                fn next(
-                    &mut self,
-                ) -> BoxFut<'_, Result<Option<Vec<Arc<str>>>>> {
-                    Box::pin(async move {
-                        if self.0.is_empty() {
-                            return Ok(None);
-                        }
-                        Ok(Some(
-                            self.0
-                                .drain(..std::cmp::min(50, self.0.len()))
-                                .collect(),
-                        ))
-                    })
-                }
-            }
-            let p: DynObjListPager = Box::new(P(list));
-            Ok(p)
+            Ok(self
+                .inner
+                .lock()
+                .unwrap()
+                .list(path_prefix, created_gte, limit))
         })
     }
 
@@ -251,11 +229,7 @@ impl Obj for ObjFile {
             safe_str(sys_prefix)?;
             let ctx = meta.ctx();
             safe_str(ctx)?;
-            let app_path = meta.app_path();
-            safe_str(app_path)?;
-
-            let prefix: Arc<str> =
-                format!("{sys_prefix}/{ctx}/{app_path}").into();
+            safe_str(meta.app_path())?;
 
             let mut hasher = Sha256::new();
             hasher.update(meta.as_bytes());
@@ -281,11 +255,7 @@ impl Obj for ObjFile {
             tokio::fs::write(&data_path, data).await?;
 
             // finally if all the writes succeeded, update our map
-            let d = self
-                .inner
-                .lock()
-                .unwrap()
-                .put(prefix, meta, meta_path, data_path);
+            let d = self.inner.lock().unwrap().put(meta, meta_path, data_path);
 
             if let Some((d1, d2)) = d {
                 destroy(d1).await;
@@ -303,54 +273,71 @@ async fn destroy(path: std::path::PathBuf) {
     }
 }
 
+struct Key {
+    created_secs: f64,
+    prefix: String,
+}
+
+impl Key {
+    pub fn new(meta: &ObjMeta) -> Self {
+        let sys_prefix = meta.sys_prefix();
+        let ctx = meta.ctx();
+        let app_path = meta.app_path();
+        let created_secs = meta.created_secs();
+        let prefix = format!("{sys_prefix}/{ctx}/{app_path}");
+
+        Self {
+            created_secs,
+            prefix,
+        }
+    }
+}
+
+impl PartialEq for Key {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == std::cmp::Ordering::Equal
+    }
+}
+
+impl Eq for Key {}
+
+impl PartialOrd for Key {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Key {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        let prefix_ord = self.prefix.cmp(&other.prefix);
+        if prefix_ord == std::cmp::Ordering::Equal {
+            // equality is based on the prefix
+            return std::cmp::Ordering::Equal;
+        }
+        // ordering is based on the created_secs,
+        // but falls back to the prefix in case of ties
+        match self.created_secs.total_cmp(&other.created_secs) {
+            std::cmp::Ordering::Equal => prefix_ord,
+            oth => oth,
+        }
+    }
+}
+
 struct Item {
     pub meta: ObjMeta,
     pub meta_path: std::path::PathBuf,
     pub data_path: std::path::PathBuf,
 }
 
-struct Inner(HashMap<Arc<str>, Item>);
+struct Inner(BTreeMap<Key, Item>);
 
 impl Inner {
     pub fn new() -> Self {
-        Self(HashMap::new())
-    }
-
-    pub fn load(
-        &mut self,
-        prefix: Arc<str>,
-        meta: ObjMeta,
-        meta_path: std::path::PathBuf,
-        data_path: std::path::PathBuf,
-    ) -> Option<(std::path::PathBuf, std::path::PathBuf)> {
-        let now = sys_now();
-        let mx = meta.expires_secs();
-        if mx > 0.0 && mx < now {
-            return Some((meta_path, data_path));
-        }
-        let created = meta.created_secs();
-        if let Some(orig) = self.0.insert(
-            prefix.clone(),
-            Item {
-                meta,
-                meta_path: meta_path.clone(),
-                data_path: data_path.clone(),
-            },
-        ) {
-            if orig.meta.created_secs() >= created {
-                // whoops, put the original back
-                self.0.insert(prefix, orig);
-                Some((meta_path, data_path))
-            } else {
-                Some((orig.meta_path, orig.data_path))
-            }
-        } else {
-            None
-        }
+        Self(BTreeMap::new())
     }
 
     pub fn prune(&mut self) -> Vec<std::path::PathBuf> {
-        let now = sys_now();
+        let now = safe_now();
         let mut destroy = Vec::new();
         self.0.retain(|_, v| {
             let x = v.meta.expires_secs();
@@ -366,13 +353,7 @@ impl Inner {
     }
 
     pub fn get(&self, meta: ObjMeta) -> Result<std::path::PathBuf> {
-        let sys_prefix = meta.sys_prefix();
-        let ctx = meta.ctx();
-        let app_path = meta.app_path();
-
-        let prefix = format!("{sys_prefix}/{ctx}/{app_path}");
-
-        if let Some(item) = self.0.get(prefix.as_str())
+        if let Some(item) = self.0.get(&Key::new(&meta))
             && item.meta == meta
         {
             return Ok(item.data_path.clone());
@@ -384,11 +365,20 @@ impl Inner {
     pub fn list(
         &self,
         prefix: Arc<str>,
-    ) -> std::collections::VecDeque<Arc<str>> {
-        let mut out = std::collections::VecDeque::new();
+        created_gte: f64,
+        limit: u32,
+    ) -> Vec<Arc<str>> {
+        let mut out = Vec::new();
         for (k, v) in self.0.iter() {
-            if k.starts_with(&*prefix) {
-                out.push_back(v.meta.0.clone());
+            if k.created_secs < created_gte {
+                continue;
+            }
+
+            if k.prefix.starts_with(&*prefix) {
+                out.push(v.meta.0.clone());
+                if out.len() >= limit as usize {
+                    return out;
+                }
             }
         }
         out
@@ -396,39 +386,35 @@ impl Inner {
 
     pub fn put(
         &mut self,
-        prefix: Arc<str>,
         meta: ObjMeta,
         meta_path: std::path::PathBuf,
         data_path: std::path::PathBuf,
     ) -> Option<(std::path::PathBuf, std::path::PathBuf)> {
-        let now = sys_now();
+        let now = safe_now();
         let mx = meta.expires_secs();
         if mx > 0.0 && mx < now {
             return Some((meta_path, data_path));
         }
-        let created = meta.created_secs();
-        if let Some(orig) = self.0.insert(
-            prefix.clone(),
-            Item {
-                meta,
-                meta_path: meta_path.clone(),
-                data_path: data_path.clone(),
-            },
-        ) {
-            let ox = orig.meta.expires_secs();
+        let key = Key::new(&meta);
+        let item = Item {
+            meta,
+            meta_path,
+            data_path,
+        };
+        if let Some((orig_key, orig_item)) = self.0.remove_entry(&key) {
+            let ox = orig_item.meta.expires_secs();
             if ox > 0.0 && ox < now {
-                return Some((orig.meta_path, orig.data_path));
+                self.0.insert(key, item);
+                return Some((orig_item.meta_path, orig_item.data_path));
             }
-            if orig.meta.created_secs() >= created {
-                // whoops, put the original back
-                self.0.insert(prefix, orig);
-                Some((meta_path, data_path))
-            } else {
-                Some((orig.meta_path, orig.data_path))
+            if orig_item.meta.created_secs() >= item.meta.created_secs() {
+                // whoops, put it back
+                self.0.insert(orig_key, orig_item);
+                return Some((item.meta_path, item.data_path));
             }
-        } else {
-            None
         }
+        self.0.insert(key, item);
+        None
     }
 }
 
@@ -447,8 +433,7 @@ mod test {
         .await
         .unwrap();
 
-        let mut iter = of.list("c/AAAA/b".into()).await.unwrap();
-        let mut list = iter.next().await.unwrap().unwrap();
+        let mut list = of.list("c/AAAA/b".into(), 0.0, 1).await.unwrap();
         assert_eq!(1, list.len());
 
         let item = list.remove(0);

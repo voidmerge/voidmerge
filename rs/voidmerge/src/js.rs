@@ -273,7 +273,6 @@ struct TState {
     pub setup: JsSetup,
     pub weak: WeakJsExec,
     pub obj: crate::obj::ObjWrap,
-    pub obj_list_pagers: HashMap<String, crate::obj::ObjWrapListPager>,
 }
 
 impl TState {
@@ -282,41 +281,7 @@ impl TState {
         weak: WeakJsExec,
         obj: crate::obj::ObjWrap,
     ) -> Self {
-        TState {
-            setup,
-            weak,
-            obj,
-            obj_list_pagers: HashMap::new(),
-        }
-    }
-
-    pub fn clear_pagers(&mut self) {
-        self.obj_list_pagers.clear();
-    }
-
-    pub fn new_pager(&mut self, pager: crate::obj::ObjWrapListPager) -> String {
-        static IDENT: std::sync::atomic::AtomicU64 =
-            std::sync::atomic::AtomicU64::new(1);
-        let ident = IDENT
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-            .to_string();
-        self.obj_list_pagers.insert(ident.clone(), pager);
-        ident
-    }
-
-    pub fn pull_pager(
-        &mut self,
-        ident: &String,
-    ) -> Option<crate::obj::ObjWrapListPager> {
-        self.obj_list_pagers.remove(ident)
-    }
-
-    pub fn push_pager(
-        &mut self,
-        ident: String,
-        pager: crate::obj::ObjWrapListPager,
-    ) {
-        self.obj_list_pagers.insert(ident, pager);
+        TState { setup, weak, obj }
     }
 }
 
@@ -339,9 +304,6 @@ mod deno_ext {
     struct PutMeta {
         #[serde(rename = "appPath", default)]
         app_path: String,
-
-        #[serde(rename = "createdSecs", default)]
-        created_secs: f64,
 
         #[serde(rename = "expiresSecs", default)]
         expires_secs: f64,
@@ -369,7 +331,7 @@ mod deno_ext {
         let meta = crate::obj::ObjMeta::new_context(
             &setup.ctx,
             &put_meta.app_path,
-            put_meta.created_secs,
+            safe_now(),
             put_meta.expires_secs,
         );
 
@@ -447,11 +409,16 @@ mod deno_ext {
     }
 
     #[deno_core::op2(async)]
-    #[string]
+    #[serde]
     async fn op_obj_list(
         state: Rc<RefCell<OpState>>,
         #[string] path_prefix: String,
-    ) -> std::result::Result<String, deno_core::error::CoreError> {
+        created_gte: f64,
+        limit: f64,
+    ) -> std::result::Result<
+        Vec<crate::obj::ObjMeta>,
+        deno_core::error::CoreError,
+    > {
         let (setup, obj) = match state.borrow().try_borrow::<TState>() {
             Some(TState { setup, obj, .. }) => (setup.clone(), obj.clone()),
             _ => {
@@ -468,41 +435,16 @@ mod deno_ext {
             setup.ctx
         );
 
-        let pager = obj.list(&path).await.map_err(|err| {
-            deno_core::error::CoreError::from(
-                deno_core::error::CoreErrorKind::Io(err),
-            )
-        })?;
+        let limit = limit.clamp(0.0, 1000.0) as u32;
 
-        let ident = state.borrow_mut().borrow_mut::<TState>().new_pager(pager);
+        let result =
+            obj.list(&path, created_gte, limit).await.map_err(|err| {
+                deno_core::error::CoreError::from(
+                    deno_core::error::CoreErrorKind::Io(err),
+                )
+            })?;
 
-        Ok(ident)
-    }
-
-    #[deno_core::op2(async)]
-    #[serde]
-    async fn op_obj_list_check(
-        state: Rc<RefCell<OpState>>,
-        #[string] ident: String,
-    ) -> std::result::Result<Option<Vec<Arc<str>>>, deno_core::error::CoreError>
-    {
-        let pager =
-            state.borrow_mut().borrow_mut::<TState>().pull_pager(&ident);
-
-        let mut pager = match pager {
-            None => return Ok(None),
-            Some(pager) => pager,
-        };
-
-        if let Some(d) = pager.next().await? {
-            state
-                .borrow_mut()
-                .borrow_mut::<TState>()
-                .push_pager(ident, pager);
-            return Ok(Some(d.into_iter().map(|m| m.0).collect()));
-        }
-
-        Ok(None)
+        Ok(result)
     }
 
     deno_core::extension!(
@@ -514,7 +456,6 @@ mod deno_ext {
             op_obj_put,
             op_obj_get,
             op_obj_list,
-            op_obj_list_check,
         ],
         esm_entry_point = "ext:vm/entry.js",
         esm = [ dir "src/js", "entry.js" ],
@@ -701,10 +642,6 @@ impl JsThread {
                     };
                     let _ = cur_output.send(res);
 
-                    let mut state: TState = rust.take().unwrap();
-                    state.clear_pagers();
-                    rust.put(state).unwrap();
-
                     match cmd_recv.blocking_recv() {
                         None => return,
                         Some(Cmd::Kill) => return,
@@ -773,11 +710,7 @@ async function vm(req) {
         const res = (new TextDecoder()).decode(await objGet(meta));
         console.log(`fetched: ${res}`);
 
-        let count = 0;
-        await objList('t', async (m) => {
-            count += 1;
-            console.log('list got', JSON.stringify(m));
-        });
+        let count = (await objList('t', 0.0, 42)).length;
 
         if (count !== 1) {
             throw new Error(`failed to list the item`);
@@ -815,8 +748,8 @@ async function vm(req) {
         println!("got: {res:#?}");
 
         let prefix = format!("{}/bobbo/", crate::obj::ObjMeta::SYS_CTX);
-        let mut p = obj.list(&prefix).await.unwrap();
-        while let Some(meta) = p.next().await.unwrap() {
+        let p = obj.list(&prefix, 0.0, u32::MAX).await.unwrap();
+        for meta in p {
             println!("GOT: {meta:?}");
         }
     }

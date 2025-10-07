@@ -29,14 +29,14 @@ declare global {
     data: Uint8Array,
     meta: {
       appPath?: string;
-      createdSecs?: number;
       expiresSecs?: number;
     },
   ): Promise<string>;
   function objList(
     appPathPrefix: string,
-    pagerCallback: (meta: string[]) => Promise<void>,
-  ): Promise<void>;
+    createdGte: number,
+    limit: number,
+  ): Promise<string[]>;
   function objGet(meta: string): Promise<Uint8Array>;
 }
 
@@ -255,7 +255,6 @@ export async function objPut(
   data: Uint8Array,
   meta: {
     appPath: string;
-    createdSecs?: number;
     expiresSecs?: number;
   },
 ): Promise<ObjMeta> {
@@ -273,15 +272,18 @@ export type ObjListPager = (meta: ObjMeta[]) => Promise<void>;
  */
 export async function objList(
   appPathPrefix: string,
-  pagerCallback: ObjListPager,
-): Promise<void> {
-  await globalThis.objList(appPathPrefix, async (meta) => {
-    const metaOut = [];
-    for (const item of meta) {
-      metaOut.push(new ObjMeta(item));
-    }
-    await pagerCallback(metaOut);
-  });
+  createdGte: number,
+  limit: number,
+): Promise<ObjMeta[]> {
+  const out = [];
+  for (const path of await globalThis.objList(
+    appPathPrefix,
+    createdGte,
+    limit,
+  )) {
+    out.push(new ObjMeta(path));
+  }
+  return out;
 }
 
 /**

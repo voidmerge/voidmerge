@@ -7,15 +7,6 @@ use std::sync::Arc;
 
 pub mod obj_file;
 
-/// Response type for an [Obj::list] request.
-pub trait ObjListPager {
-    /// Get the next group of items from the list stream.
-    fn next(&mut self) -> BoxFut<'_, Result<Option<Vec<Arc<str>>>>>;
-}
-
-/// Dyn [ObjListPager] type.
-pub type DynObjListPager = Box<dyn ObjListPager + 'static + Send>;
-
 /// Low-level object store trait.
 pub trait Obj: 'static + Send + Sync {
     /// Get an object by path from the store.
@@ -25,7 +16,9 @@ pub trait Obj: 'static + Send + Sync {
     fn list(
         &self,
         path_prefix: Arc<str>,
-    ) -> BoxFut<'_, Result<DynObjListPager>>;
+        created_gte: f64,
+        limit: u32,
+    ) -> BoxFut<'_, Result<Vec<Arc<str>>>>;
 
     /// Put an object into the store.
     fn put(&self, path: Arc<str>, obj: Bytes) -> BoxFut<'_, Result<()>>;
@@ -151,20 +144,6 @@ impl ObjMeta {
     }
 }
 
-/// Pager for [ObjWrap::list].
-pub struct ObjWrapListPager(DynObjListPager);
-
-impl ObjWrapListPager {
-    /// Get the next page.
-    pub async fn next(&mut self) -> Result<Option<Vec<ObjMeta>>> {
-        let list = match self.0.next().await? {
-            None => return Ok(None),
-            Some(list) => list,
-        };
-        Ok(Some(list.into_iter().map(ObjMeta).collect()))
-    }
-}
-
 /// Object store type.
 #[derive(Clone)]
 pub struct ObjWrap {
@@ -187,9 +166,19 @@ impl ObjWrap {
     }
 
     /// List objects in the store.
-    pub async fn list(&self, path_prefix: &str) -> Result<ObjWrapListPager> {
-        let pager = self.inner.list(path_prefix.into()).await?;
-        Ok(ObjWrapListPager(pager))
+    pub async fn list(
+        &self,
+        path_prefix: &str,
+        created_gte: f64,
+        limit: u32,
+    ) -> Result<Vec<ObjMeta>> {
+        Ok(self
+            .inner
+            .list(path_prefix.into(), created_gte, limit)
+            .await?
+            .into_iter()
+            .map(ObjMeta)
+            .collect())
     }
 
     /// Put an object into the store.
@@ -204,12 +193,11 @@ impl ObjWrap {
         &self,
         path_part: &str,
     ) -> Result<(Bytes, ObjMeta)> {
-        let mut page = self.list(path_part).await?;
-        while let Ok(Some(page)) = page.next().await {
-            if let Some(meta) = page.into_iter().next() {
-                let obj = self.get(meta.clone()).await?;
-                return Ok((obj, meta));
-            }
+        let mut res = self.list(path_part, 0.0, 1).await?;
+        if !res.is_empty() {
+            let meta = res.remove(0);
+            let obj = self.get(meta.clone()).await?;
+            return Ok((obj, meta));
         }
         Err(Error::not_found(format!("could not find {path_part}")))
     }
@@ -241,7 +229,7 @@ impl ObjWrap {
             ObjMeta::SYS_SETUP,
             ObjMeta::SYS_SETUP,
             "setup",
-            sys_now(),
+            safe_now(),
             0.0,
         );
         self.put(meta, Bytes::from_encode(&sys_setup)?).await?;
@@ -259,25 +247,20 @@ impl ObjWrap {
         let mut out: HashMap<Arc<str>, (CtxSetup, CtxConfig)> = HashMap::new();
 
         let prefix = format!("{}/", ObjMeta::SYS_CTX_SETUP).into();
-        let mut page = self.inner.list(prefix).await?;
-        while let Ok(Some(page)) = page.next().await {
-            for path in page {
-                let setup: CtxSetup =
-                    self.get(ObjMeta(path)).await?.to_decode()?;
-                let ctx = setup.ctx.clone();
-                out.entry(ctx).or_default().0 = setup;
-            }
+        let page = self.inner.list(prefix, 0.0, u32::MAX).await?;
+        for path in page {
+            let setup: CtxSetup = self.get(ObjMeta(path)).await?.to_decode()?;
+            let ctx = setup.ctx.clone();
+            out.entry(ctx).or_default().0 = setup;
         }
 
         let prefix = format!("{}/", ObjMeta::SYS_CTX_CONFIG).into();
-        let mut page = self.inner.list(prefix).await?;
-        while let Ok(Some(page)) = page.next().await {
-            for path in page {
-                let config: CtxConfig =
-                    self.get(ObjMeta(path)).await?.to_decode()?;
-                let ctx = config.ctx.clone();
-                out.entry(ctx).or_default().1 = config;
-            }
+        let page = self.inner.list(prefix, 0.0, u32::MAX).await?;
+        for path in page {
+            let config: CtxConfig =
+                self.get(ObjMeta(path)).await?.to_decode()?;
+            let ctx = config.ctx.clone();
+            out.entry(ctx).or_default().1 = config;
         }
 
         Ok(out)
@@ -292,7 +275,7 @@ impl ObjWrap {
             ObjMeta::SYS_CTX_SETUP,
             &ctx_setup.ctx,
             "setup",
-            sys_now(),
+            safe_now(),
             0.0,
         );
         self.put(meta, Bytes::from_encode(&ctx_setup)?).await?;
@@ -308,7 +291,7 @@ impl ObjWrap {
             ObjMeta::SYS_CTX_CONFIG,
             &ctx_config.ctx,
             "config",
-            sys_now(),
+            safe_now(),
             0.0,
         );
         self.put(meta, Bytes::from_encode(&ctx_config)?).await?;
@@ -321,7 +304,7 @@ mod test {
     use super::*;
 
     #[tokio::test]
-    async fn obj_mem() {
+    async fn obj_wrap() {
         let o = ObjWrap::new(obj_file::ObjFile::create(None).await.unwrap())
             .await
             .unwrap();
@@ -329,20 +312,16 @@ mod test {
         let ctx: Arc<str> = "AAAA".into();
 
         o.put(
-            ObjMeta::new(ObjMeta::SYS_SETUP, &ctx, "test", sys_now(), 0.0),
+            ObjMeta::new(ObjMeta::SYS_SETUP, &ctx, "test", safe_now(), 0.0),
             Bytes::from_static(b"hello"),
         )
         .await
         .unwrap();
 
-        let mut found = Vec::new();
-        let mut p = o
-            .list(&format!("{}/{}/t", ObjMeta::SYS_SETUP, ctx))
+        let mut found = o
+            .list(&format!("{}/{}/t", ObjMeta::SYS_SETUP, ctx), 0.0, 1)
             .await
             .unwrap();
-        while let Ok(Some(mut v)) = p.next().await {
-            found.append(&mut v);
-        }
         let found = found.remove(0);
 
         let got = o.get(found).await.unwrap();

@@ -22,11 +22,31 @@ pub type BoxFut<'lt, T> =
     std::pin::Pin<Box<dyn std::future::Future<Output = T> + 'lt + Send>>;
 
 /// Current system time as f64 seconds.
-fn sys_now() -> f64 {
-    std::time::SystemTime::UNIX_EPOCH
+/// This function will never return a duplicate number even if called
+/// in a tight loop.
+pub fn safe_now() -> f64 {
+    static A: std::sync::atomic::AtomicU64 =
+        std::sync::atomic::AtomicU64::new(0);
+
+    let mut now = std::time::SystemTime::UNIX_EPOCH
         .elapsed()
-        .expect("system time error")
-        .as_secs_f64()
+        .unwrap()
+        .as_secs_f64();
+
+    let _ = A.fetch_update(
+        std::sync::atomic::Ordering::SeqCst,
+        std::sync::atomic::Ordering::SeqCst,
+        |stored| {
+            let mut stored = f64::from_le_bytes(stored.to_le_bytes());
+            stored += 0.000001;
+            if stored > now {
+                now = stored;
+            }
+            Some(u64::from_le_bytes(now.to_le_bytes()))
+        },
+    );
+
+    now
 }
 
 /// Check for safe characters to be used in contexts / paths / etc.
