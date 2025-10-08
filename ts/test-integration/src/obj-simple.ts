@@ -36,7 +36,7 @@ VM.defineVoidMergeHandler(async (req) => {
       }
     } else if (pReq.do === "get") {
       res.val = new TextDecoder().decode(
-        await VM.objGet(new VM.ObjMeta(pReq.k)),
+        (await VM.objGet(new VM.ObjMeta(pReq.k))).data,
       );
     }
 

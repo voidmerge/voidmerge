@@ -196,17 +196,19 @@ impl ObjFile {
 }
 
 impl Obj for ObjFile {
-    fn get(&self, path: Arc<str>) -> BoxFut<'_, Result<Bytes>> {
+    fn get(&self, path: Arc<str>) -> BoxFut<'_, Result<(Arc<str>, Bytes)>> {
         Box::pin(async move {
-            let data_path = self.inner.lock().unwrap().get(ObjMeta(path))?;
-            Ok(tokio::fs::read(data_path).await?.into())
+            let (meta, data_path) =
+                self.inner.lock().unwrap().get(ObjMeta(path))?;
+            let data = tokio::fs::read(data_path).await?.into();
+            Ok((meta.0, data))
         })
     }
 
     fn list(
         &self,
         path_prefix: Arc<str>,
-        created_gte: f64,
+        created_gt: f64,
         limit: u32,
     ) -> BoxFut<'_, Result<Vec<Arc<str>>>> {
         Box::pin(async move {
@@ -214,7 +216,7 @@ impl Obj for ObjFile {
                 .inner
                 .lock()
                 .unwrap()
-                .list(path_prefix, created_gte, limit))
+                .list(path_prefix, created_gt, limit))
         })
     }
 
@@ -352,11 +354,19 @@ impl Inner {
         destroy
     }
 
-    pub fn get(&self, meta: ObjMeta) -> Result<std::path::PathBuf> {
-        if let Some(item) = self.0.get(&Key::new(&meta))
-            && item.meta == meta
+    pub fn get(&self, meta: ObjMeta) -> Result<(ObjMeta, std::path::PathBuf)> {
+        let key = Key::new(&meta);
+        if let Some((_, item)) = self
+            .0
+            .range(
+                key..Key {
+                    created_secs: f64::MAX,
+                    prefix: "".into(),
+                },
+            )
+            .next_back()
         {
-            return Ok(item.data_path.clone());
+            return Ok((item.meta.clone(), item.data_path.clone()));
         }
 
         Err(Error::not_found(format!("Could not locate meta: {meta}")))
@@ -365,20 +375,30 @@ impl Inner {
     pub fn list(
         &self,
         prefix: Arc<str>,
-        created_gte: f64,
+        created_gt: f64,
         limit: u32,
     ) -> Vec<Arc<str>> {
         let mut out = Vec::new();
-        for (k, v) in self.0.iter() {
-            if k.created_secs < created_gte {
-                continue;
+        let mut last_created_secs = 0.0;
+        for (k, v) in self.0.range(
+            Key {
+                created_secs: created_gt,
+                prefix: "".into(),
+            }..Key {
+                created_secs: f64::MAX,
+                prefix: "".into(),
+            },
+        ) {
+            if out.len() >= limit as usize && k.created_secs > last_created_secs
+            {
+                // in edge case of exactly matching created_secs, we may return
+                // more than the limit, but if we don't do this, the continue
+                // token will cause them to miss some items
+                return out;
             }
-
-            if k.prefix.starts_with(&*prefix) {
+            last_created_secs = k.created_secs;
+            if k.created_secs > created_gt && k.prefix.starts_with(&*prefix) {
                 out.push(v.meta.0.clone());
-                if out.len() >= limit as usize {
-                    return out;
-                }
             }
         }
         out
@@ -439,12 +459,27 @@ mod test {
         let item = list.remove(0);
         assert_eq!("c/AAAA/bob/1.0/0.0", &*item);
 
-        let got = of.get("c/AAAA/bob/1.0/0.0".into()).await.unwrap();
+        let got = of.get("c/AAAA/bob/1.0/0.0".into()).await.unwrap().1;
         assert_eq!(&b"hello"[..], &got[..]);
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn obj_load() {
+    async fn get_unknown_time() {
+        let of = ObjFile::create(None).await.unwrap();
+
+        of.put(
+            "c/AAAA/bob/1.0/0.0".into(),
+            bytes::Bytes::from_static(b"hello"),
+        )
+        .await
+        .unwrap();
+
+        let got = of.get("c/AAAA/bob/0.0/0.0".into()).await.unwrap().1;
+        assert_eq!(&b"hello"[..], &got[..]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn load() {
         let tmp = tempfile::tempdir().unwrap();
 
         let of1 = ObjFile::create(Some(tmp.path().into())).await.unwrap();
@@ -460,7 +495,7 @@ mod test {
 
         let of2 = ObjFile::create(Some(tmp.path().into())).await.unwrap();
 
-        let got = of2.get("c/AAAA/bob/1.0/0.0".into()).await.unwrap();
+        let got = of2.get("c/AAAA/bob/1.0/0.0".into()).await.unwrap().1;
         assert_eq!(&b"hello"[..], &got[..]);
     }
 }

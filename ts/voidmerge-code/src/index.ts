@@ -34,10 +34,10 @@ declare global {
   ): Promise<string>;
   function objList(
     appPathPrefix: string,
-    createdGte: number,
+    createdGt: number,
     limit: number,
   ): Promise<string[]>;
-  function objGet(meta: string): Promise<Uint8Array>;
+  function objGet(meta: string): Promise<{ meta: string; data: Uint8Array }>;
 }
 
 /**
@@ -272,13 +272,13 @@ export type ObjListPager = (meta: ObjMeta[]) => Promise<void>;
  */
 export async function objList(
   appPathPrefix: string,
-  createdGte: number,
+  createdGt: number,
   limit: number,
 ): Promise<ObjMeta[]> {
   const out = [];
   for (const path of await globalThis.objList(
     appPathPrefix,
-    createdGte,
+    createdGt,
     limit,
   )) {
     out.push(new ObjMeta(path));
@@ -289,6 +289,9 @@ export async function objList(
 /**
  * Get an object from the object store given a finalized meta path.
  */
-export async function objGet(meta: ObjMeta): Promise<Uint8Array> {
-  return await globalThis.objGet(meta.fullPath());
+export async function objGet(
+  meta: ObjMeta,
+): Promise<{ meta: ObjMeta; data: Uint8Array }> {
+  const { meta: m, data } = await globalThis.objGet(meta.fullPath());
+  return { meta: new ObjMeta(m), data };
 }

@@ -373,12 +373,18 @@ mod deno_ext {
         Ok(meta.0)
     }
 
+    #[derive(serde::Serialize)]
+    struct ObjGetResult {
+        meta: crate::obj::ObjMeta,
+        data: Bytes,
+    }
+
     #[deno_core::op2(async)]
-    #[buffer]
+    #[serde]
     async fn op_obj_get(
         state: Rc<RefCell<OpState>>,
         #[string] meta: String,
-    ) -> std::result::Result<Vec<u8>, deno_core::error::CoreError> {
+    ) -> std::result::Result<ObjGetResult, deno_core::error::CoreError> {
         let (setup, obj) = match state.borrow().try_borrow::<TState>() {
             Some(TState { setup, obj, .. }) => (setup.clone(), obj.clone()),
             _ => {
@@ -402,10 +408,13 @@ mod deno_ext {
             ))
             .into());
         }
-        obj.get(meta)
-            .await
-            .map_err(|err| deno_core::error::CoreErrorKind::Io(err).into())
-            .map(|o| o.to_vec())
+        let (meta, data) = obj.get(meta).await.map_err(|err| {
+            deno_core::error::CoreError::from(
+                deno_core::error::CoreErrorKind::Io(err),
+            )
+        })?;
+
+        Ok(ObjGetResult { meta, data })
     }
 
     #[deno_core::op2(async)]
@@ -413,7 +422,7 @@ mod deno_ext {
     async fn op_obj_list(
         state: Rc<RefCell<OpState>>,
         #[string] path_prefix: String,
-        created_gte: f64,
+        created_gt: f64,
         limit: f64,
     ) -> std::result::Result<
         Vec<crate::obj::ObjMeta>,
@@ -438,7 +447,7 @@ mod deno_ext {
         let limit = limit.clamp(0.0, 1000.0) as u32;
 
         let result =
-            obj.list(&path, created_gte, limit).await.map_err(|err| {
+            obj.list(&path, created_gt, limit).await.map_err(|err| {
                 deno_core::error::CoreError::from(
                     deno_core::error::CoreErrorKind::Io(err),
                 )
@@ -707,7 +716,7 @@ async function vm(req) {
         );
         console.log(`put returned meta: ${meta}`);
 
-        const res = (new TextDecoder()).decode(await objGet(meta));
+        const res = (new TextDecoder()).decode((await objGet(meta)).data);
         console.log(`fetched: ${res}`);
 
         let count = (await objList('t', 0.0, 42)).length;

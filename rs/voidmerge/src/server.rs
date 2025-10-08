@@ -162,6 +162,36 @@ impl Server {
             .ok_or_else(|| Error::not_found(format!("no context: {ctx}")))
     }
 
+    fn check_sysadmin(&self, token: &Arc<str>) -> Result<()> {
+        if !self.get_sys_setup().sys_admin.contains(token) {
+            return Err(Error::unauthorized(
+                "only sysadmins can perform a ctx-setup",
+            ));
+        }
+        Ok(())
+    }
+
+    fn check_ctxadmin(
+        &self,
+        token: &Arc<str>,
+        ctx: &Arc<str>,
+    ) -> Result<(CtxSetup, CtxConfig)> {
+        let (cur_setup, cur_config) = self.get_ctx_setup(ctx)?;
+
+        if !self.get_sys_setup().sys_admin.contains(token) {
+            // If we are not a sys admin, we must be a ctx admin
+            if !cur_setup.ctx_admin.contains(token)
+                && !cur_config.ctx_admin.contains(token)
+            {
+                return Err(Error::unauthorized(
+                    "only sysadmins and ctxadmins can perform a ctx-config",
+                ));
+            }
+        }
+
+        Ok((cur_setup, cur_config))
+    }
+
     /// Set sysadmin tokens.
     pub async fn set_sys_admin(&self, sys_admin: Vec<Arc<str>>) -> Result<()> {
         for token in sys_admin.iter() {
@@ -185,11 +215,7 @@ impl Server {
         token: Arc<str>,
         setup: CtxSetup,
     ) -> Result<()> {
-        if !self.get_sys_setup().sys_admin.contains(&token) {
-            return Err(Error::unauthorized(
-                "only sysadmins can perform a ctx-setup",
-            ));
-        }
+        self.check_sysadmin(&token)?;
 
         setup.check()?;
 
@@ -214,18 +240,7 @@ impl Server {
         token: Arc<str>,
         config: CtxConfig,
     ) -> Result<()> {
-        let (cur_setup, cur_config) = self.get_ctx_setup(&config.ctx)?;
-
-        if !self.get_sys_setup().sys_admin.contains(&token) {
-            // If we are not a sys admin, we must be a ctx admin
-            if !cur_setup.ctx_admin.contains(&token)
-                && !cur_config.ctx_admin.contains(&token)
-            {
-                return Err(Error::unauthorized(
-                    "only sysadmins and ctxadmins can perform a ctx-config",
-                ));
-            }
-        }
+        self.check_ctxadmin(&token, &config.ctx)?;
 
         config.check()?;
 
@@ -242,6 +257,23 @@ impl Server {
         self.setup_context(ctx, ctx_setup, ctx_config)?;
 
         Ok(())
+    }
+
+    /// List metadata from the object store.
+    pub async fn obj_list_get(
+        &self,
+        token: Arc<str>,
+        ctx: Arc<str>,
+        prefix: Arc<str>,
+        created_gt: f64,
+        limit: u32,
+    ) -> Result<Vec<crate::obj::ObjMeta>> {
+        self.check_ctxadmin(&token, &ctx)?;
+
+        let prefix =
+            format!("{}/{}/{prefix}", crate::obj::ObjMeta::SYS_CTX, ctx,);
+
+        self.obj.list(&prefix, created_gt, limit).await
     }
 
     /// Process a function request.

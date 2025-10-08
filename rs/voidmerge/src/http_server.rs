@@ -93,6 +93,7 @@ pub async fn http_server(
             "/{ctx}/_vm_/config",
             axum::routing::put(route_ctx_config_put),
         )
+        .route("/{ctx}/_vm_/list", axum::routing::get(route_ctx_list_get))
         .route("/{ctx}/{*path}", axum::routing::get(route_fn_get))
         .route("/{ctx}/", axum::routing::get(route_fn_get_def))
         .route("/{ctx}", axum::routing::get(route_fn_get_def))
@@ -171,6 +172,38 @@ async fn route_ctx_config_put(
         .ctx_config_put(token, payload.to_decode()?)
         .await?;
     Ok("Ok".into_response())
+}
+
+fn list_limit_default() -> f64 {
+    1000.0
+}
+
+#[derive(serde::Deserialize)]
+struct CtxListQuery {
+    #[serde(default)]
+    prefix: Arc<str>,
+    #[serde(default)]
+    created_gt: f64,
+    #[serde(default = "list_limit_default")]
+    limit: f64,
+}
+
+async fn route_ctx_list_get(
+    headers: axum::http::HeaderMap,
+    axum::extract::Path(ctx): axum::extract::Path<String>,
+    axum::extract::Query(query): axum::extract::Query<CtxListQuery>,
+    axum::extract::ConnectInfo(_addr): axum::extract::ConnectInfo<
+        std::net::SocketAddr,
+    >,
+    axum::extract::State(state): axum::extract::State<Arc<State>>,
+) -> AxumResult {
+    let token = auth_token(&headers);
+    let limit = query.limit.clamp(0.0, 1000.0).floor() as u32;
+    let result = state
+        .server
+        .obj_list_get(token, ctx.into(), query.prefix, query.created_gt, limit)
+        .await?;
+    Ok(bytes::Bytes::from_encode(&result)?.into_response())
 }
 
 fn hdr(m: &axum::http::HeaderMap) -> std::collections::HashMap<String, String> {

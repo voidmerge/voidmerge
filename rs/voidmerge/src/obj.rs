@@ -10,13 +10,13 @@ pub mod obj_file;
 /// Low-level object store trait.
 pub trait Obj: 'static + Send + Sync {
     /// Get an object by path from the store.
-    fn get(&self, path: Arc<str>) -> BoxFut<'_, Result<Bytes>>;
+    fn get(&self, path: Arc<str>) -> BoxFut<'_, Result<(Arc<str>, Bytes)>>;
 
     /// List objects in the store by path prefix.
     fn list(
         &self,
         path_prefix: Arc<str>,
-        created_gte: f64,
+        created_gt: f64,
         limit: u32,
     ) -> BoxFut<'_, Result<Vec<Arc<str>>>>;
 
@@ -161,20 +161,23 @@ impl ObjWrap {
 
 impl ObjWrap {
     /// Get an object by metadata from the store.
-    pub async fn get(&self, meta: ObjMeta) -> Result<Bytes> {
-        self.inner.get(meta.0).await
+    pub async fn get(&self, meta: ObjMeta) -> Result<(ObjMeta, Bytes)> {
+        self.inner
+            .get(meta.0)
+            .await
+            .map(|(meta, data)| (ObjMeta(meta), data))
     }
 
     /// List objects in the store.
     pub async fn list(
         &self,
         path_prefix: &str,
-        created_gte: f64,
+        created_gt: f64,
         limit: u32,
     ) -> Result<Vec<ObjMeta>> {
         Ok(self
             .inner
-            .list(path_prefix.into(), created_gte, limit)
+            .list(path_prefix.into(), created_gt, limit)
             .await?
             .into_iter()
             .map(ObjMeta)
@@ -192,12 +195,10 @@ impl ObjWrap {
     pub async fn get_single(
         &self,
         path_part: &str,
-    ) -> Result<(Bytes, ObjMeta)> {
+    ) -> Result<(ObjMeta, Bytes)> {
         let mut res = self.list(path_part, 0.0, 1).await?;
         if !res.is_empty() {
-            let meta = res.remove(0);
-            let obj = self.get(meta.clone()).await?;
-            return Ok((obj, meta));
+            return self.get(res.remove(0)).await;
         }
         Err(Error::not_found(format!("could not find {path_part}")))
     }
@@ -206,7 +207,7 @@ impl ObjWrap {
     pub async fn get_sys_setup(&self) -> Result<crate::server::SysSetup> {
         use crate::server::SysSetup;
 
-        if let Ok((sys_setup, _)) = self
+        if let Ok((_, sys_setup)) = self
             .get_single(&format!(
                 "{}/{}/setup",
                 ObjMeta::SYS_SETUP,
@@ -249,7 +250,8 @@ impl ObjWrap {
         let prefix = format!("{}/", ObjMeta::SYS_CTX_SETUP).into();
         let page = self.inner.list(prefix, 0.0, u32::MAX).await?;
         for path in page {
-            let setup: CtxSetup = self.get(ObjMeta(path)).await?.to_decode()?;
+            let setup: CtxSetup =
+                self.get(ObjMeta(path)).await?.1.to_decode()?;
             let ctx = setup.ctx.clone();
             out.entry(ctx).or_default().0 = setup;
         }
@@ -258,7 +260,7 @@ impl ObjWrap {
         let page = self.inner.list(prefix, 0.0, u32::MAX).await?;
         for path in page {
             let config: CtxConfig =
-                self.get(ObjMeta(path)).await?.to_decode()?;
+                self.get(ObjMeta(path)).await?.1.to_decode()?;
             let ctx = config.ctx.clone();
             out.entry(ctx).or_default().1 = config;
         }
@@ -324,7 +326,7 @@ mod test {
             .unwrap();
         let found = found.remove(0);
 
-        let got = o.get(found).await.unwrap();
+        let got = o.get(found).await.unwrap().1;
 
         assert_eq!(b"hello", got.as_ref());
     }
