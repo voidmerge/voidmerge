@@ -93,7 +93,11 @@ pub async fn http_server(
             "/{ctx}/_vm_/config",
             axum::routing::put(route_ctx_config_put),
         )
-        .route("/{ctx}/_vm_/list", axum::routing::get(route_ctx_list_get))
+        .route(
+            "/{ctx}/_vm_/list",
+            axum::routing::get(route_ctx_obj_list_get),
+        )
+        .route("/{ctx}/_vm_/get", axum::routing::get(route_ctx_obj_get_get))
         .route("/{ctx}/{*path}", axum::routing::get(route_fn_get))
         .route("/{ctx}/", axum::routing::get(route_fn_get_def))
         .route("/{ctx}", axum::routing::get(route_fn_get_def))
@@ -188,7 +192,7 @@ struct CtxListQuery {
     limit: f64,
 }
 
-async fn route_ctx_list_get(
+async fn route_ctx_obj_list_get(
     headers: axum::http::HeaderMap,
     axum::extract::Path(ctx): axum::extract::Path<String>,
     axum::extract::Query(query): axum::extract::Query<CtxListQuery>,
@@ -204,6 +208,36 @@ async fn route_ctx_list_get(
         .obj_list_get(token, ctx.into(), query.prefix, query.created_gt, limit)
         .await?;
     Ok(bytes::Bytes::from_encode(&result)?.into_response())
+}
+
+#[derive(serde::Deserialize)]
+struct CtxGetQuery {
+    #[serde(default)]
+    meta: Arc<str>,
+}
+
+#[derive(serde::Serialize)]
+struct CtxGetResponse {
+    meta: crate::obj::ObjMeta,
+    data: bytes::Bytes,
+}
+
+async fn route_ctx_obj_get_get(
+    headers: axum::http::HeaderMap,
+    axum::extract::Path(ctx): axum::extract::Path<String>,
+    axum::extract::Query(query): axum::extract::Query<CtxGetQuery>,
+    axum::extract::ConnectInfo(_addr): axum::extract::ConnectInfo<
+        std::net::SocketAddr,
+    >,
+    axum::extract::State(state): axum::extract::State<Arc<State>>,
+) -> AxumResult {
+    let token = auth_token(&headers);
+    let (meta, data) = state
+        .server
+        .obj_get_get(token, ctx.into(), query.meta)
+        .await?;
+    Ok(bytes::Bytes::from_encode(&CtxGetResponse { meta, data })?
+        .into_response())
 }
 
 fn hdr(m: &axum::http::HeaderMap) -> std::collections::HashMap<String, String> {

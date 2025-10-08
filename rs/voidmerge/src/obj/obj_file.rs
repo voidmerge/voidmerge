@@ -1,7 +1,7 @@
 //! File-backed object store.
 
 use crate::obj::*;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::sync::Mutex;
 
 /// File-backed object store.
@@ -275,68 +275,17 @@ async fn destroy(path: std::path::PathBuf) {
     }
 }
 
-#[derive(Clone)]
-struct Key {
-    created_secs: f64,
-    prefix: String,
-}
-
-impl Key {
-    pub fn new(meta: &ObjMeta) -> Self {
-        let sys_prefix = meta.sys_prefix();
-        let ctx = meta.ctx();
-        let app_path = meta.app_path();
-        let created_secs = meta.created_secs();
-        let prefix = format!("{sys_prefix}/{ctx}/{app_path}");
-
-        Self {
-            created_secs,
-            prefix,
-        }
-    }
-}
-
-impl PartialEq for Key {
-    fn eq(&self, other: &Self) -> bool {
-        self.cmp(other) == std::cmp::Ordering::Equal
-    }
-}
-
-impl Eq for Key {}
-
-impl PartialOrd for Key {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for Key {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        let prefix_ord = self.prefix.cmp(&other.prefix);
-        if prefix_ord == std::cmp::Ordering::Equal {
-            // equality is based on the prefix
-            return std::cmp::Ordering::Equal;
-        }
-        // ordering is based on the created_secs,
-        // but falls back to the prefix in case of ties
-        match self.created_secs.total_cmp(&other.created_secs) {
-            std::cmp::Ordering::Equal => prefix_ord,
-            oth => oth,
-        }
-    }
-}
-
 struct Item {
     pub meta: ObjMeta,
     pub meta_path: std::path::PathBuf,
     pub data_path: std::path::PathBuf,
 }
 
-struct Inner(BTreeMap<Key, Item>);
+struct Inner(OrderMap<Item>);
 
 impl Inner {
     pub fn new() -> Self {
-        Self(BTreeMap::new())
+        Self(OrderMap::default())
     }
 
     pub fn prune(&mut self) -> Vec<std::path::PathBuf> {
@@ -356,34 +305,13 @@ impl Inner {
     }
 
     pub fn get(&self, meta: ObjMeta) -> Result<(ObjMeta, std::path::PathBuf)> {
-        let key = Key::new(&meta);
-
-        // Optimistically look for the one they passed in.
-        // Note that this may non-deterministically return a matching
-        // prefix even if the created_at is different, depending on the
-        // current setup of the btree. If we get it, we can consider that
-        // a happy accident. If not, well find it with the iterator below.
-        if let Some(item) = self.0.get(&key) {
-            return Ok((meta, item.data_path.clone()));
-        }
-
-        // otherwise iterate backwards
-        for (k, item) in self
-            .0
-            .range(
-                key.clone()..Key {
-                    created_secs: f64::MAX,
-                    prefix: "".into(),
-                },
-            )
-            .rev()
-        {
-            if k.prefix == key.prefix {
-                return Ok((item.meta.clone(), item.data_path.clone()));
-            }
-        }
-
-        Err(Error::not_found(format!("Could not locate meta: {meta}")))
+        let pfx = Pfx::new(&meta);
+        self.0
+            .get(&pfx)
+            .map(|item| (item.meta.clone(), item.data_path.clone()))
+            .ok_or_else(|| {
+                Error::not_found(format!("Could not locate meta: {meta}"))
+            })
     }
 
     pub fn list(
@@ -394,25 +322,17 @@ impl Inner {
     ) -> Vec<Arc<str>> {
         let mut out = Vec::new();
         let mut last_created_secs = 0.0;
-        for (k, v) in self.0.range(
-            Key {
-                created_secs: created_gt,
-                prefix: "".into(),
-            }..Key {
-                created_secs: f64::MAX,
-                prefix: "".into(),
-            },
-        ) {
-            if out.len() >= limit as usize && k.created_secs > last_created_secs
-            {
+        for item in self.0.iter(created_gt, f64::MAX) {
+            let created_secs = item.meta.created_secs();
+            if out.len() >= limit as usize && created_secs > last_created_secs {
                 // in edge case of exactly matching created_secs, we may return
                 // more than the limit, but if we don't do this, the continue
                 // token will cause them to miss some items
                 return out;
             }
-            last_created_secs = k.created_secs;
-            if k.created_secs > created_gt && k.prefix.starts_with(&*prefix) {
-                out.push(v.meta.0.clone());
+            last_created_secs = created_secs;
+            if created_secs > created_gt && item.meta.0.starts_with(&*prefix) {
+                out.push(item.meta.0.clone());
             }
         }
         out
@@ -429,26 +349,137 @@ impl Inner {
         if mx > 0.0 && mx < now {
             return Some((meta_path, data_path));
         }
-        let key = Key::new(&meta);
+        let pfx = Pfx::new(&meta);
         let item = Item {
             meta,
             meta_path,
             data_path,
         };
-        if let Some((orig_key, orig_item)) = self.0.remove_entry(&key) {
+        let created_secs = item.meta.created_secs();
+        if let Some(orig_item) = self.0.insert(created_secs, pfx, item) {
             let ox = orig_item.meta.expires_secs();
             if ox > 0.0 && ox < now {
-                self.0.insert(key, item);
                 return Some((orig_item.meta_path, orig_item.data_path));
             }
-            if orig_item.meta.created_secs() >= item.meta.created_secs() {
-                // whoops, put it back
-                self.0.insert(orig_key, orig_item);
-                return Some((item.meta_path, item.data_path));
+            let orig_created_secs = orig_item.meta.created_secs();
+            if orig_created_secs >= created_secs {
+                // woops, put it back
+                if let Some(item) = self.0.insert(
+                    orig_created_secs,
+                    Pfx::new(&orig_item.meta),
+                    orig_item,
+                ) {
+                    return Some((item.meta_path, item.data_path));
+                }
             }
         }
-        self.0.insert(key, item);
         None
+    }
+}
+
+#[derive(Clone, Copy)]
+struct Order(f64);
+
+impl PartialEq for Order {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == std::cmp::Ordering::Equal
+    }
+}
+
+impl Eq for Order {}
+
+impl PartialOrd for Order {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Order {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.0.total_cmp(&other.0)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct Pfx(Arc<str>);
+
+impl Pfx {
+    pub fn new(meta: &ObjMeta) -> Self {
+        Self(format!(
+            "{}/{}/{}",
+            meta.sys_prefix(),
+            meta.ctx(),
+            meta.app_path(),
+        ).into())
+    }
+}
+
+struct OrderMap<T> {
+    map: HashMap<Pfx, (Order, T)>,
+    order: BTreeMap<Order, HashSet<Pfx>>,
+}
+
+impl<T> Default for OrderMap<T> {
+    fn default() -> Self {
+        Self {
+            map: Default::default(),
+            order: Default::default(),
+        }
+    }
+}
+
+impl<T> OrderMap<T> {
+    pub fn retain<F>(&mut self, mut f: F)
+    where
+        F: FnMut(&Pfx, &T) -> bool,
+    {
+        let mut remove = Vec::new();
+        for (pfx, (_, t)) in self.map.iter() {
+            if !f(pfx, t) {
+                remove.push(pfx.clone());
+            }
+        }
+        for pfx in remove {
+            self.remove(&pfx);
+        }
+    }
+
+    pub fn remove(&mut self, pfx: &Pfx) -> Option<T> {
+        if let Some((order, t)) = self.map.remove(pfx) {
+            let mut remove = false;
+            if let Some(set) = self.order.get_mut(&order) {
+                set.remove(pfx);
+                if set.is_empty() {
+                    remove = true;
+                }
+            }
+            if remove {
+                self.order.remove(&order);
+            }
+            Some(t)
+        } else {
+            None
+        }
+    }
+
+    pub fn insert(&mut self, order: f64, pfx: Pfx, val: T) -> Option<T> {
+        let out = self.remove(&pfx);
+        let order = Order(order);
+        self.map.insert(pfx.clone(), (order, val));
+        self.order.entry(order).or_default().insert(pfx);
+        out
+    }
+
+    pub fn get(&self, pfx: &Pfx) -> Option<&T> {
+        self.map.get(pfx).map(|v| &v.1)
+    }
+
+    pub fn iter(&self, start: f64, end: f64) -> impl Iterator<Item = &T> {
+        self.order
+            .range(Order(start)..Order(end))
+            .flat_map(|(_, set)| {
+                set.iter().filter_map(|pfx| self.map.get(pfx).map(|v| &v.1))
+            })
     }
 }
 

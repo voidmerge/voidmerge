@@ -271,9 +271,29 @@ impl Server {
         self.check_ctxadmin(&token, &ctx)?;
 
         let prefix =
-            format!("{}/{}/{prefix}", crate::obj::ObjMeta::SYS_CTX, ctx,);
+            format!("{}/{}/{prefix}", crate::obj::ObjMeta::SYS_CTX, ctx);
 
         self.obj.list(&prefix, created_gt, limit).await
+    }
+
+    /// Get an item from the object store.
+    pub async fn obj_get_get(
+        &self,
+        token: Arc<str>,
+        ctx: Arc<str>,
+        meta: Arc<str>,
+    ) -> Result<(crate::obj::ObjMeta, bytes::Bytes)> {
+        self.check_ctxadmin(&token, &ctx)?;
+
+        let meta = crate::obj::ObjMeta(meta);
+        if meta.sys_prefix() != crate::obj::ObjMeta::SYS_CTX {
+            return Err(Error::invalid("invalid sys_prefix"));
+        }
+        if meta.ctx() != &*ctx {
+            return Err(Error::invalid("invalid ctx"));
+        }
+
+        self.obj.get(meta).await
     }
 
     /// Process a function request.
