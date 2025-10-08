@@ -275,6 +275,7 @@ async fn destroy(path: std::path::PathBuf) {
     }
 }
 
+#[derive(Clone)]
 struct Key {
     created_secs: f64,
     prefix: String,
@@ -356,17 +357,30 @@ impl Inner {
 
     pub fn get(&self, meta: ObjMeta) -> Result<(ObjMeta, std::path::PathBuf)> {
         let key = Key::new(&meta);
-        if let Some((_, item)) = self
+
+        // Optimistically look for the one they passed in.
+        // Note that this may non-deterministically return a matching
+        // prefix even if the created_at is different, depending on the
+        // current setup of the btree. If we get it, we can consider that
+        // a happy accident. If not, well find it with the iterator below.
+        if let Some(item) = self.0.get(&key) {
+            return Ok((meta, item.data_path.clone()));
+        }
+
+        // otherwise iterate backwards
+        for (k, item) in self
             .0
             .range(
-                key..Key {
+                key.clone()..Key {
                     created_secs: f64::MAX,
                     prefix: "".into(),
                 },
             )
-            .next_back()
+            .rev()
         {
-            return Ok((item.meta.clone(), item.data_path.clone()));
+            if k.prefix == key.prefix {
+                return Ok((item.meta.clone(), item.data_path.clone()));
+            }
         }
 
         Err(Error::not_found(format!("Could not locate meta: {meta}")))
@@ -470,6 +484,13 @@ mod test {
         of.put(
             "c/AAAA/bob/1.0/0.0".into(),
             bytes::Bytes::from_static(b"hello"),
+        )
+        .await
+        .unwrap();
+
+        of.put(
+            "c/AAAA/ned/2.0/0.0".into(),
+            bytes::Bytes::from_static(b"world"),
         )
         .await
         .unwrap();

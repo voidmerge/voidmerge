@@ -705,13 +705,10 @@ async function vm(req) {
         const s = (new TextDecoder()).decode(b);
         console.log('decode', s);
 
-        const t = Date.now() / 1000.0;
-
         const meta = await objPut(
             (new TextEncoder()).encode('hello'),
             {
                 appPath: 'test',
-                createdSecs: t,
             }
         );
         console.log(`put returned meta: ${meta}`);
@@ -719,7 +716,9 @@ async function vm(req) {
         const res = (new TextDecoder()).decode((await objGet(meta)).data);
         console.log(`fetched: ${res}`);
 
-        let count = (await objList('t', 0.0, 42)).length;
+        const list = await objList('t', 0.0, 42);
+        console.log(`list result: ${JSON.stringify(list)}`);
+        let count = list.length;
 
         if (count !== 1) {
             throw new Error(`failed to list the item`);
