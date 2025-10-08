@@ -83,11 +83,17 @@ impl ObjMeta {
         app_path: &str,
         created_secs: f64,
         expires_secs: f64,
+        byte_length: f64,
     ) -> Self {
         Self(
             format!(
-                "{}/{}/{}/{}/{}",
-                sys_prefix, ctx, app_path, created_secs, expires_secs,
+                "{}/{}/{}/{}/{}/{}",
+                sys_prefix,
+                ctx,
+                app_path,
+                created_secs,
+                expires_secs,
+                byte_length
             )
             .into(),
         )
@@ -99,8 +105,16 @@ impl ObjMeta {
         app_path: &str,
         created_secs: f64,
         expires_secs: f64,
+        byte_length: f64,
     ) -> Self {
-        Self::new(Self::SYS_CTX, ctx, app_path, created_secs, expires_secs)
+        Self::new(
+            Self::SYS_CTX,
+            ctx,
+            app_path,
+            created_secs,
+            expires_secs,
+            byte_length,
+        )
     }
 
     /// Get the sys_prefix associated with this meta path.
@@ -141,6 +155,18 @@ impl ObjMeta {
             .unwrap_or("")
             .parse()
             .unwrap_or(0.0)
+    }
+
+    /// Get the byte_length associated with this meta path.
+    pub fn byte_length(&self) -> u64 {
+        self.0
+            .split('/')
+            .nth(5)
+            .unwrap_or("")
+            .parse::<f64>()
+            .unwrap_or(0.0)
+            .clamp(0.0, u64::MAX as f64)
+            .floor() as u64
     }
 }
 
@@ -226,14 +252,16 @@ impl ObjWrap {
         &self,
         sys_setup: crate::server::SysSetup,
     ) -> Result<()> {
+        let enc = Bytes::from_encode(&sys_setup)?;
         let meta = ObjMeta::new(
             ObjMeta::SYS_SETUP,
             ObjMeta::SYS_SETUP,
             "setup",
             safe_now(),
             0.0,
+            enc.len() as f64,
         );
-        self.put(meta, Bytes::from_encode(&sys_setup)?).await?;
+        self.put(meta, enc).await?;
         Ok(())
     }
 
@@ -273,14 +301,16 @@ impl ObjWrap {
         &self,
         ctx_setup: crate::server::CtxSetup,
     ) -> Result<()> {
+        let enc = Bytes::from_encode(&ctx_setup)?;
         let meta = ObjMeta::new(
             ObjMeta::SYS_CTX_SETUP,
             &ctx_setup.ctx,
             "setup",
             safe_now(),
             0.0,
+            enc.len() as f64,
         );
-        self.put(meta, Bytes::from_encode(&ctx_setup)?).await?;
+        self.put(meta, enc).await?;
         Ok(())
     }
 
@@ -289,14 +319,16 @@ impl ObjWrap {
         &self,
         ctx_config: crate::server::CtxConfig,
     ) -> Result<()> {
+        let enc = Bytes::from_encode(&ctx_config)?;
         let meta = ObjMeta::new(
             ObjMeta::SYS_CTX_CONFIG,
             &ctx_config.ctx,
             "config",
             safe_now(),
             0.0,
+            enc.len() as f64,
         );
-        self.put(meta, Bytes::from_encode(&ctx_config)?).await?;
+        self.put(meta, enc).await?;
         Ok(())
     }
 }
@@ -314,7 +346,14 @@ mod test {
         let ctx: Arc<str> = "AAAA".into();
 
         o.put(
-            ObjMeta::new(ObjMeta::SYS_SETUP, &ctx, "test", safe_now(), 0.0),
+            ObjMeta::new(
+                ObjMeta::SYS_SETUP,
+                &ctx,
+                "test",
+                safe_now(),
+                0.0,
+                5.0,
+            ),
             Bytes::from_static(b"hello"),
         )
         .await

@@ -8,9 +8,32 @@ export class ObjMeta {
   #path: string;
   #parts: string[];
 
-  constructor(path: string) {
+  private constructor(path: string) {
     this.#path = path;
     this.#parts = this.#path.split("/");
+  }
+
+  /**
+   * Validate and construct an ObjMeta from a full path string.
+   */
+  static fromFull(path: string): ObjMeta {
+    const out = new ObjMeta(path);
+    if (out.sysPrefix() !== "c") {
+      throw new Error(`invalid sysPrefix: '${out.sysPrefix()}', expected 'c'`);
+    }
+    const ctx = globalThis.VM.ctx();
+    if (out.ctx() !== ctx) {
+      throw new Error(`invalid ctx: '${out.ctx()}', expected '${ctx}'`);
+    }
+    return out;
+  }
+
+  /**
+   * Generate an ObjMeta from components, filling in stubs for unknowns.
+   */
+  static fromParts(appPath: string, expiresSecs?: number): ObjMeta {
+    const ctx = globalThis.VM.ctx();
+    return ObjMeta.fromFull(`c/${ctx}/${appPath}/0/${expiresSecs || 0}/0`);
   }
 
   /**
@@ -73,5 +96,15 @@ export class ObjMeta {
       return parseFloat(this.#parts[4]);
     }
     throw new Error(`invalid ObjMeta path, no expiresSecs component`);
+  }
+
+  /**
+   * Get the byte length of the data associated with this ObjMeta path.
+   */
+  byteLength(): number {
+    if (this.#parts.length >= 6) {
+      return parseFloat(this.#parts[5]);
+    }
+    throw new Error(`invalid ObjMeta path, no byteLength component`);
   }
 }

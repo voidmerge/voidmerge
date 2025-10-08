@@ -17,6 +17,16 @@ globalThis.TextDecoder = class TextDecoder {
   }
 };
 
-globalThis.objPut = vm.op_obj_put;
-globalThis.objGet = vm.op_obj_get;
-globalThis.objList = vm.op_obj_list;
+let ctx = null;
+globalThis.VM = {
+  ctx: () => {
+    if (ctx) {
+      return ctx;
+    }
+    ctx = vm.op_get_ctx();
+    return ctx;
+  },
+  objPut: vm.op_obj_put,
+  objGet: vm.op_obj_get,
+  objList: vm.op_obj_list
+};

@@ -15,7 +15,24 @@ type VmRawReq =
       headers: { [header: string]: string };
     };
 
-// define types / functions expected and provided by the vm system
+interface GlobalVM {
+  ctx(): string;
+  objPut(
+    data: Uint8Array,
+    meta: {
+      appPath?: string;
+      expiresSecs?: number;
+    },
+  ): Promise<string>;
+  objList(
+    appPathPrefix: string,
+    createdGt: number,
+    limit: number,
+  ): Promise<string[]>;
+  objGet(meta: string): Promise<{ meta: string; data: Uint8Array }>;
+}
+
+// define types / functions provided by the vm system
 declare global {
   var vm: (req: VmRawReq) => Promise<
     | {
@@ -25,19 +42,7 @@ declare global {
         type: "fnResOk";
       }
   >;
-  function objPut(
-    data: Uint8Array,
-    meta: {
-      appPath?: string;
-      expiresSecs?: number;
-    },
-  ): Promise<string>;
-  function objList(
-    appPathPrefix: string,
-    createdGt: number,
-    limit: number,
-  ): Promise<string[]>;
-  function objGet(meta: string): Promise<{ meta: string; data: Uint8Array }>;
+  var VM: GlobalVM;
 }
 
 /**
@@ -237,7 +242,7 @@ export function defineVoidMergeHandler(handler: VoidMergeHandler) {
     const type = req.type;
     if (req.type === "objCheckReq") {
       return await handler(
-        new RequestObjCheck(req.data, new ObjMeta(req.meta)),
+        new RequestObjCheck(req.data, ObjMeta.fromFull(req.meta)),
       );
     } else if (req.type === "fnReq") {
       return await handler(
@@ -246,6 +251,13 @@ export function defineVoidMergeHandler(handler: VoidMergeHandler) {
     }
     throw new Error(`invalid request type: ${type}`);
   };
+}
+
+/**
+ * Get the current context under which this code is executing.
+ */
+export function ctx(): string {
+  return globalThis.VM.ctx();
 }
 
 /**
@@ -258,14 +270,9 @@ export async function objPut(
     expiresSecs?: number;
   },
 ): Promise<ObjMeta> {
-  const metaOut = await globalThis.objPut(data, meta);
-  return new ObjMeta(metaOut);
+  const metaOut = await globalThis.VM.objPut(data, meta);
+  return ObjMeta.fromFull(metaOut);
 }
-
-/**
- * Callback function signature for {@link objList}.
- */
-export type ObjListPager = (meta: ObjMeta[]) => Promise<void>;
 
 /**
  * List data from the object store.
@@ -276,12 +283,12 @@ export async function objList(
   limit: number,
 ): Promise<ObjMeta[]> {
   const out = [];
-  for (const path of await globalThis.objList(
+  for (const path of await globalThis.VM.objList(
     appPathPrefix,
     createdGt,
     limit,
   )) {
-    out.push(new ObjMeta(path));
+    out.push(ObjMeta.fromFull(path));
   }
   return out;
 }
@@ -292,6 +299,6 @@ export async function objList(
 export async function objGet(
   meta: ObjMeta,
 ): Promise<{ meta: ObjMeta; data: Uint8Array }> {
-  const { meta: m, data } = await globalThis.objGet(meta.fullPath());
-  return { meta: new ObjMeta(m), data };
+  const { meta: m, data } = await globalThis.VM.objGet(meta.fullPath());
+  return { meta: ObjMeta.fromFull(m), data };
 }

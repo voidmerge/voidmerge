@@ -289,6 +289,20 @@ mod deno_ext {
     use super::*;
 
     #[deno_core::op2]
+    #[serde]
+    fn op_get_ctx(
+        state: Rc<RefCell<OpState>>,
+    ) -> std::result::Result<Arc<str>, deno_core::error::CoreError> {
+        match state.borrow().try_borrow::<TState>() {
+            Some(TState { setup, .. }) => Ok(setup.ctx.clone()),
+            _ => Err(deno_core::error::CoreErrorKind::Io(Error::other(
+                "bad state",
+            ))
+            .into()),
+        }
+    }
+
+    #[deno_core::op2]
     #[buffer]
     fn op_to_utf8(#[string] input: &str) -> Vec<u8> {
         input.as_bytes().to_vec()
@@ -333,6 +347,7 @@ mod deno_ext {
             &put_meta.app_path,
             safe_now(),
             put_meta.expires_secs,
+            data.len() as f64,
         );
 
         if let Some(exec) = weak.upgrade() {
@@ -460,6 +475,7 @@ mod deno_ext {
         vm,
         deps = [deno_console],
         ops = [
+            op_get_ctx,
             op_to_utf8,
             op_from_utf8,
             op_obj_put,
@@ -705,7 +721,7 @@ async function vm(req) {
         const s = (new TextDecoder()).decode(b);
         console.log('decode', s);
 
-        const meta = await objPut(
+        const meta = await VM.objPut(
             (new TextEncoder()).encode('hello'),
             {
                 appPath: 'test',
@@ -713,10 +729,10 @@ async function vm(req) {
         );
         console.log(`put returned meta: ${meta}`);
 
-        const res = (new TextDecoder()).decode((await objGet(meta)).data);
+        const res = (new TextDecoder()).decode((await VM.objGet(meta)).data);
         console.log(`fetched: ${res}`);
 
-        const list = await objList('t', 0.0, 42);
+        const list = await VM.objList('t', 0.0, 42);
         console.log(`list result: ${JSON.stringify(list)}`);
         let count = list.length;
 

@@ -281,19 +281,40 @@ impl Server {
         &self,
         token: Arc<str>,
         ctx: Arc<str>,
-        meta: Arc<str>,
+        app_path: String,
     ) -> Result<(crate::obj::ObjMeta, bytes::Bytes)> {
         self.check_ctxadmin(&token, &ctx)?;
 
-        let meta = crate::obj::ObjMeta(meta);
-        if meta.sys_prefix() != crate::obj::ObjMeta::SYS_CTX {
-            return Err(Error::invalid("invalid sys_prefix"));
-        }
-        if meta.ctx() != &*ctx {
-            return Err(Error::invalid("invalid ctx"));
-        }
+        let meta =
+            crate::obj::ObjMeta::new_context(&ctx, &app_path, 0.0, 0.0, 0.0);
 
         self.obj.get(meta).await
+    }
+
+    /// Put an item into the object store.
+    pub async fn obj_put_put(
+        &self,
+        token: Arc<str>,
+        ctx: Arc<str>,
+        app_path: String,
+        created_secs: f64,
+        expires_secs: f64,
+        data: bytes::Bytes,
+    ) -> Result<crate::obj::ObjMeta> {
+        self.check_ctxadmin(&token, &ctx)?;
+
+        let meta = crate::obj::ObjMeta::new_context(
+            &ctx,
+            &app_path,
+            created_secs,
+            expires_secs,
+            data.len() as f64,
+        );
+
+        // TODO ObjCheck
+
+        self.obj.put(meta.clone(), data).await?;
+        Ok(meta)
     }
 
     /// Process a function request.
