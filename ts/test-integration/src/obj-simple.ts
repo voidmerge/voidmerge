@@ -25,19 +25,26 @@ VM.defineVoidMergeHandler(async (req) => {
 
     if (pReq.do === "put") {
       res.meta = (
-        await VM.objPut(new TextEncoder().encode(pReq.v), {
-          appPath: pReq.k,
+        await VM.objPut({
+          meta: VM.ObjMeta.fromParts({ appPath: pReq.k }),
+          data: new TextEncoder().encode(pReq.v),
         })
-      ).fullPath();
+      ).meta.fullPath();
     } else if (pReq.do === "list") {
       res.list = [];
-      for (const meta of await VM.objList(pReq.k, 0.0, 42)) {
+      const { metaList } = await VM.objList({
+        appPathPrefix: pReq.k,
+        createdGt: 0.0,
+        limit: 42,
+      });
+      for (const meta of metaList) {
         res.list?.push(meta.fullPath());
       }
     } else if (pReq.do === "get") {
-      res.val = new TextDecoder().decode(
-        (await VM.objGet(VM.ObjMeta.fromFull(pReq.k))).data,
-      );
+      const { data } = await VM.objGet({
+        meta: VM.ObjMeta.fromFull(pReq.k),
+      });
+      res.val = new TextDecoder().decode(data);
     }
 
     return VM.RequestFn.okResponse(

@@ -165,7 +165,7 @@ impl Server {
     fn check_sysadmin(&self, token: &Arc<str>) -> Result<()> {
         if !self.get_sys_setup().sys_admin.contains(token) {
             return Err(Error::unauthorized(
-                "only sysadmins can perform a ctx-setup",
+                "action requires sysadmin permissions",
             ));
         }
         Ok(())
@@ -184,7 +184,7 @@ impl Server {
                 && !cur_config.ctx_admin.contains(token)
             {
                 return Err(Error::unauthorized(
-                    "only sysadmins and ctxadmins can perform a ctx-config",
+                    "action requires ctxadmin permissions",
                 ));
             }
         }
@@ -260,7 +260,7 @@ impl Server {
     }
 
     /// List metadata from the object store.
-    pub async fn obj_list_get(
+    pub async fn obj_list(
         &self,
         token: Arc<str>,
         ctx: Arc<str>,
@@ -277,7 +277,7 @@ impl Server {
     }
 
     /// Get an item from the object store.
-    pub async fn obj_get_get(
+    pub async fn obj_get(
         &self,
         token: Arc<str>,
         ctx: Arc<str>,
@@ -292,7 +292,7 @@ impl Server {
     }
 
     /// Put an item into the object store.
-    pub async fn obj_put_put(
+    pub async fn obj_put(
         &self,
         token: Arc<str>,
         ctx: Arc<str>,
@@ -311,9 +311,18 @@ impl Server {
             data.len() as f64,
         );
 
-        // TODO ObjCheck
+        let c = match self.ctx_map.lock().unwrap().get(&ctx) {
+            None => {
+                return Err(Error::not_found(format!(
+                    "invalid context: {ctx}"
+                )));
+            }
+            Some(c) => c.clone(),
+        };
+        c.obj_check_req(meta.clone(), data.clone()).await?;
 
         self.obj.put(meta.clone(), data).await?;
+
         Ok(meta)
     }
 

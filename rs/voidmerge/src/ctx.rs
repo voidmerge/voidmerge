@@ -41,6 +41,26 @@ impl Ctx {
         })
     }
 
+    /// Process an ObjCheck request.
+    pub async fn obj_check_req(
+        &self,
+        meta: crate::obj::ObjMeta,
+        data: bytes::Bytes,
+    ) -> Result<()> {
+        let res = self
+            .js
+            .exec(
+                self.js_setup.clone(),
+                self.obj.clone(),
+                crate::js::JsRequest::ObjCheckReq { data, meta },
+            )
+            .await?;
+        match res {
+            crate::js::JsResponse::ObjCheckResOk => Ok(()),
+            _ => Err(Error::other("invalid ObjCheck response")),
+        }
+    }
+
     /// Process a function request.
     pub async fn fn_req(
         &self,

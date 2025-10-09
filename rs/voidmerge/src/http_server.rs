@@ -16,6 +16,12 @@ impl From<std::io::Error> for ErrTx {
     }
 }
 
+impl From<std::num::ParseFloatError> for ErrTx {
+    fn from(_: std::num::ParseFloatError) -> Self {
+        Self(std::io::Error::other("expected f64"))
+    }
+}
+
 impl axum::response::IntoResponse for ErrTx {
     fn into_response(self) -> axum::response::Response {
         let str_err = format!("{:?}", self.0);
@@ -94,11 +100,17 @@ pub async fn http_server(
             axum::routing::put(route_ctx_config_put),
         )
         .route(
-            "/{ctx}/_vm_/list",
-            axum::routing::get(route_ctx_obj_list_get),
+            "/{ctx}/_vm_/obj-list/{app_path_prefix}",
+            axum::routing::get(route_ctx_obj_list),
         )
-        .route("/{ctx}/_vm_/get", axum::routing::get(route_ctx_obj_get_get))
-        .route("/{ctx}/_vm_/put", axum::routing::put(route_ctx_obj_put_put))
+        .route(
+            "/{ctx}/_vm_/obj-get/{app_path}",
+            axum::routing::get(route_ctx_obj_get),
+        )
+        .route(
+            "/{ctx}/_vm_/obj-put/{app_path}/{created_secs}/{expires_secs}",
+            axum::routing::put(route_ctx_obj_put),
+        )
         .route("/{ctx}/{*path}", axum::routing::get(route_fn_get))
         .route("/{ctx}/", axum::routing::get(route_fn_get_def))
         .route("/{ctx}", axum::routing::get(route_fn_get_def))
@@ -184,19 +196,26 @@ fn list_limit_default() -> f64 {
 }
 
 #[derive(serde::Deserialize)]
-struct CtxListQuery {
-    #[serde(default)]
-    prefix: Arc<str>,
-    #[serde(default)]
+struct ObjListQuery {
+    #[serde(rename = "created-gt", default)]
     created_gt: f64,
     #[serde(default = "list_limit_default")]
     limit: f64,
 }
 
-async fn route_ctx_obj_list_get(
+#[derive(serde::Serialize)]
+struct ObjListOutput {
+    #[serde(rename = "metaList")]
+    meta_list: Vec<crate::obj::ObjMeta>,
+}
+
+async fn route_ctx_obj_list(
     headers: axum::http::HeaderMap,
-    axum::extract::Path(ctx): axum::extract::Path<String>,
-    axum::extract::Query(query): axum::extract::Query<CtxListQuery>,
+    axum::extract::Path((ctx, app_path_prefix)): axum::extract::Path<(
+        String,
+        String,
+    )>,
+    axum::extract::Query(query): axum::extract::Query<ObjListQuery>,
     axum::extract::ConnectInfo(_addr): axum::extract::ConnectInfo<
         std::net::SocketAddr,
     >,
@@ -206,55 +225,46 @@ async fn route_ctx_obj_list_get(
     let limit = query.limit.clamp(0.0, 1000.0).floor() as u32;
     let result = state
         .server
-        .obj_list_get(token, ctx.into(), query.prefix, query.created_gt, limit)
+        .obj_list(
+            token,
+            ctx.into(),
+            app_path_prefix.into(),
+            query.created_gt,
+            limit,
+        )
         .await?;
-    Ok(bytes::Bytes::from_encode(&result)?.into_response())
-}
-
-#[derive(serde::Deserialize)]
-struct CtxGetQuery {
-    #[serde(default)]
-    app_path: String,
+    Ok(
+        bytes::Bytes::from_encode(&ObjListOutput { meta_list: result })?
+            .into_response(),
+    )
 }
 
 #[derive(serde::Serialize)]
-struct CtxGetResponse {
+struct ObjGetOutput {
     meta: crate::obj::ObjMeta,
     data: bytes::Bytes,
 }
 
-async fn route_ctx_obj_get_get(
+async fn route_ctx_obj_get(
     headers: axum::http::HeaderMap,
-    axum::extract::Path(ctx): axum::extract::Path<String>,
-    axum::extract::Query(query): axum::extract::Query<CtxGetQuery>,
+    axum::extract::Path((ctx, app_path)): axum::extract::Path<(String, String)>,
     axum::extract::ConnectInfo(_addr): axum::extract::ConnectInfo<
         std::net::SocketAddr,
     >,
     axum::extract::State(state): axum::extract::State<Arc<State>>,
 ) -> AxumResult {
     let token = auth_token(&headers);
-    let (meta, data) = state
-        .server
-        .obj_get_get(token, ctx.into(), query.app_path)
-        .await?;
-    Ok(bytes::Bytes::from_encode(&CtxGetResponse { meta, data })?
-        .into_response())
+    let (meta, data) =
+        state.server.obj_get(token, ctx.into(), app_path).await?;
+    Ok(
+        bytes::Bytes::from_encode(&ObjGetOutput { meta, data })?
+            .into_response(),
+    )
 }
 
-#[derive(serde::Deserialize)]
-struct CtxPutQuery {
-    #[serde(default)]
-    app_path: String,
-    #[serde(default = "safe_now")]
-    created_secs: f64,
-    #[serde(default)]
-    expires_secs: f64,
-}
-
-async fn route_ctx_obj_put_put(
+async fn route_ctx_obj_put(
     headers: axum::http::HeaderMap,
-    axum::extract::Path(ctx): axum::extract::Path<String>,
-    axum::extract::Query(query): axum::extract::Query<CtxPutQuery>,
+    axum::extract::Path((ctx, app_path, created_secs, expires_secs)): axum::extract::Path<(String, String, String, String)>,
     axum::extract::ConnectInfo(_addr): axum::extract::ConnectInfo<
         std::net::SocketAddr,
     >,
@@ -264,12 +274,12 @@ async fn route_ctx_obj_put_put(
     let token = auth_token(&headers);
     let meta = state
         .server
-        .obj_put_put(
+        .obj_put(
             token,
             ctx.into(),
-            query.app_path,
-            query.created_secs,
-            query.expires_secs,
+            app_path,
+            created_secs.parse()?,
+            expires_secs.parse()?,
             payload,
         )
         .await?;

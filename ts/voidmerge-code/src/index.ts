@@ -17,19 +17,13 @@ type VmRawReq =
 
 interface GlobalVM {
   ctx(): string;
-  objPut(
-    data: Uint8Array,
-    meta: {
-      appPath?: string;
-      expiresSecs?: number;
-    },
-  ): Promise<string>;
-  objList(
-    appPathPrefix: string,
-    createdGt: number,
-    limit: number,
-  ): Promise<string[]>;
-  objGet(meta: string): Promise<{ meta: string; data: Uint8Array }>;
+  objPut(input: { meta: string; data: Uint8Array }): Promise<{ meta: string }>;
+  objList(input: {
+    appPathPrefix: string;
+    createdGt: number;
+    limit: number;
+  }): Promise<{ metaList: string[] }>;
+  objGet(input: { meta: string }): Promise<{ meta: string; data: Uint8Array }>;
 }
 
 // define types / functions provided by the vm system
@@ -263,42 +257,41 @@ export function ctx(): string {
 /**
  * Put some data in the object store. Returns the finalized meta path.
  */
-export async function objPut(
-  data: Uint8Array,
-  meta: {
-    appPath: string;
-    expiresSecs?: number;
-  },
-): Promise<ObjMeta> {
-  const metaOut = await globalThis.VM.objPut(data, meta);
-  return ObjMeta.fromFull(metaOut);
+export async function objPut(input: {
+  meta: ObjMeta;
+  data: Uint8Array;
+}): Promise<{ meta: ObjMeta }> {
+  const { meta } = await globalThis.VM.objPut({
+    meta: input.meta.fullPath(),
+    data: input.data,
+  });
+  return { meta: ObjMeta.fromFull(meta) };
 }
 
 /**
  * List data from the object store.
  */
-export async function objList(
-  appPathPrefix: string,
-  createdGt: number,
-  limit: number,
-): Promise<ObjMeta[]> {
-  const out = [];
-  for (const path of await globalThis.VM.objList(
-    appPathPrefix,
-    createdGt,
-    limit,
-  )) {
-    out.push(ObjMeta.fromFull(path));
+export async function objList(input: {
+  appPathPrefix: string;
+  createdGt: number;
+  limit: number;
+}): Promise<{ metaList: ObjMeta[] }> {
+  const { metaList } = await globalThis.VM.objList(input);
+  const metaListOut = [];
+  for (const path of metaList) {
+    metaListOut.push(ObjMeta.fromFull(path));
   }
-  return out;
+  return { metaList: metaListOut };
 }
 
 /**
  * Get an object from the object store given a finalized meta path.
  */
-export async function objGet(
-  meta: ObjMeta,
-): Promise<{ meta: ObjMeta; data: Uint8Array }> {
-  const { meta: m, data } = await globalThis.VM.objGet(meta.fullPath());
-  return { meta: ObjMeta.fromFull(m), data };
+export async function objGet(input: {
+  meta: ObjMeta;
+}): Promise<{ meta: ObjMeta; data: Uint8Array }> {
+  const { meta, data } = await globalThis.VM.objGet({
+    meta: input.meta.fullPath(),
+  });
+  return { meta: ObjMeta.fromFull(meta), data };
 }

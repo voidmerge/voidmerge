@@ -5,7 +5,7 @@ describe("ObjMeta", () => {
   beforeEach(checkTestSetup);
 
   it("fromParts", () => {
-    const meta = ObjMeta.fromParts("test");
+    const meta = ObjMeta.fromParts({ appPath: "test" });
     expect(meta.appPath()).toEqual("test");
   });
 });

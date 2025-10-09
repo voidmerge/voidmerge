@@ -315,21 +315,25 @@ mod deno_ext {
     }
 
     #[derive(Debug, serde::Deserialize)]
-    struct PutMeta {
-        #[serde(rename = "appPath", default)]
-        app_path: String,
+    struct ObjPutInput {
+        #[serde(default)]
+        meta: Arc<str>,
 
-        #[serde(rename = "expiresSecs", default)]
-        expires_secs: f64,
+        #[serde(default)]
+        data: bytes::Bytes,
+    }
+
+    #[derive(Debug, serde::Serialize)]
+    struct ObjPutOutput {
+        meta: Arc<str>,
     }
 
     #[deno_core::op2(async)]
     #[serde]
     async fn op_obj_put(
         state: Rc<RefCell<OpState>>,
-        #[buffer(copy)] data: bytes::Bytes,
-        #[serde] put_meta: PutMeta,
-    ) -> std::result::Result<Arc<str>, deno_core::error::CoreError> {
+        #[serde] input: ObjPutInput,
+    ) -> std::result::Result<ObjPutOutput, deno_core::error::CoreError> {
         let (setup, weak, obj) = match state.borrow().try_borrow::<TState>() {
             Some(TState {
                 setup, weak, obj, ..
@@ -342,12 +346,14 @@ mod deno_ext {
             }
         };
 
+        let input_meta = crate::obj::ObjMeta(input.meta);
+
         let meta = crate::obj::ObjMeta::new_context(
             &setup.ctx,
-            &put_meta.app_path,
+            input_meta.app_path(),
             safe_now(),
-            put_meta.expires_secs,
-            data.len() as f64,
+            input_meta.expires_secs(),
+            input.data.len() as f64,
         );
 
         if let Some(exec) = weak.upgrade() {
@@ -356,7 +362,7 @@ mod deno_ext {
                     setup.clone(),
                     obj.clone(),
                     JsRequest::ObjCheckReq {
-                        data: data.clone(),
+                        data: input.data.clone(),
                         meta: meta.clone(),
                     },
                 )
@@ -379,18 +385,24 @@ mod deno_ext {
             .into());
         }
 
-        obj.put(meta.clone(), data).await.map_err(|err| {
+        obj.put(meta.clone(), input.data).await.map_err(|err| {
             deno_core::error::CoreError::from(
                 deno_core::error::CoreErrorKind::Io(err),
             )
         })?;
 
-        Ok(meta.0)
+        Ok(ObjPutOutput { meta: meta.0 })
     }
 
-    #[derive(serde::Serialize)]
-    struct ObjGetResult {
-        meta: crate::obj::ObjMeta,
+    #[derive(Debug, serde::Deserialize)]
+    struct ObjGetInput {
+        #[serde(default)]
+        meta: Arc<str>,
+    }
+
+    #[derive(Debug, serde::Serialize)]
+    struct ObjGetOutput {
+        meta: Arc<str>,
         data: Bytes,
     }
 
@@ -398,8 +410,8 @@ mod deno_ext {
     #[serde]
     async fn op_obj_get(
         state: Rc<RefCell<OpState>>,
-        #[string] meta: String,
-    ) -> std::result::Result<ObjGetResult, deno_core::error::CoreError> {
+        #[serde] input: ObjGetInput,
+    ) -> std::result::Result<ObjGetOutput, deno_core::error::CoreError> {
         let (setup, obj) = match state.borrow().try_borrow::<TState>() {
             Some(TState { setup, obj, .. }) => (setup.clone(), obj.clone()),
             _ => {
@@ -410,7 +422,7 @@ mod deno_ext {
             }
         };
 
-        let meta = crate::obj::ObjMeta(meta.into());
+        let meta = crate::obj::ObjMeta(input.meta);
         if meta.sys_prefix() != crate::obj::ObjMeta::SYS_CTX {
             return Err(deno_core::error::CoreErrorKind::Io(Error::other(
                 "invalid sys prefix",
@@ -429,20 +441,37 @@ mod deno_ext {
             )
         })?;
 
-        Ok(ObjGetResult { meta, data })
+        Ok(ObjGetOutput { meta: meta.0, data })
+    }
+
+    fn f64_1000() -> f64 {
+        1000.0
+    }
+
+    #[derive(Debug, serde::Deserialize)]
+    struct ObjListInput {
+        #[serde(rename = "appPathPrefix", default)]
+        app_path_prefix: Arc<str>,
+
+        #[serde(rename = "createdGt", default)]
+        created_gt: f64,
+
+        #[serde(default = "f64_1000")]
+        limit: f64,
+    }
+
+    #[derive(Debug, serde::Serialize)]
+    struct ObjListOutput {
+        #[serde(rename = "metaList")]
+        meta_list: Vec<crate::obj::ObjMeta>,
     }
 
     #[deno_core::op2(async)]
     #[serde]
     async fn op_obj_list(
         state: Rc<RefCell<OpState>>,
-        #[string] path_prefix: String,
-        created_gt: f64,
-        limit: f64,
-    ) -> std::result::Result<
-        Vec<crate::obj::ObjMeta>,
-        deno_core::error::CoreError,
-    > {
+        #[serde] input: ObjListInput,
+    ) -> std::result::Result<ObjListOutput, deno_core::error::CoreError> {
         let (setup, obj) = match state.borrow().try_borrow::<TState>() {
             Some(TState { setup, obj, .. }) => (setup.clone(), obj.clone()),
             _ => {
@@ -454,21 +483,24 @@ mod deno_ext {
         };
 
         let path = format!(
-            "{}/{}/{path_prefix}",
+            "{}/{}/{}",
             crate::obj::ObjMeta::SYS_CTX,
-            setup.ctx
+            setup.ctx,
+            input.app_path_prefix,
         );
 
-        let limit = limit.clamp(0.0, 1000.0) as u32;
+        let limit = input.limit.clamp(0.0, 1000.0) as u32;
 
         let result =
-            obj.list(&path, created_gt, limit).await.map_err(|err| {
-                deno_core::error::CoreError::from(
-                    deno_core::error::CoreErrorKind::Io(err),
-                )
-            })?;
+            obj.list(&path, input.created_gt, limit)
+                .await
+                .map_err(|err| {
+                    deno_core::error::CoreError::from(
+                        deno_core::error::CoreErrorKind::Io(err),
+                    )
+                })?;
 
-        Ok(result)
+        Ok(ObjListOutput { meta_list: result })
     }
 
     deno_core::extension!(
@@ -721,20 +753,23 @@ async function vm(req) {
         const s = (new TextDecoder()).decode(b);
         console.log('decode', s);
 
-        const meta = await VM.objPut(
-            (new TextEncoder()).encode('hello'),
-            {
-                appPath: 'test',
-            }
-        );
+        const { meta } = await VM.objPut({
+            meta: 'c/A/test',
+            data: new TextEncoder().encode('hello'),
+        });
         console.log(`put returned meta: ${meta}`);
 
-        const res = (new TextDecoder()).decode((await VM.objGet(meta)).data);
+        const { data } = await VM.objGet({ meta });
+        const res = new TextDecoder().decode(data);
         console.log(`fetched: ${res}`);
 
-        const list = await VM.objList('t', 0.0, 42);
-        console.log(`list result: ${JSON.stringify(list)}`);
-        let count = list.length;
+        const { metaList } = await VM.objList({
+            appPathPrefix: 't',
+            createdGt: 0.0,
+            limit: 42,
+        });
+        console.log(`list result: ${JSON.stringify(metaList)}`);
+        let count = metaList.length;
 
         if (count !== 1) {
             throw new Error(`failed to list the item`);
