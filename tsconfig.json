@@ -1,7 +1,6 @@
 {
   "files": [],
   "references": [
-    { "path": "ts/example1" },
     { "path": "ts/test-integration" },
     { "path": "ts/voidmerge-client" },
     { "path": "ts/voidmerge-code" }

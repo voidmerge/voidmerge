@@ -10,8 +10,7 @@
     "doc-open": "npm run doc && xdg-open docs/index.html",
     "test": "npm test --include-workspace-root -w"
   },
-  "dependencies": {},
   "devDependencies": {
-    "typedoc": "^0.28.11"
+    "typedoc": "^0.28.13"
   }
 }
