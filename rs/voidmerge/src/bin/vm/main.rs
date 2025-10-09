@@ -19,6 +19,8 @@ serve                     : Run the VoidMerge HTTP server
                             (env: VM_STORE=) (def: use a temp dir)
 
 test                      : Run a test server (sysadmin: 'test', ctx: 'test')
+  --http-addr <HTTP_ADDR> : Http server address to bind (env: VM_HTTP_ADDR=)
+                            (def: '[::]:8080')
   --code-file <PATH>      : Javascript code for the context (env: VM_CODE=)
 
 health                    : Execute a health check against a server
@@ -143,8 +145,11 @@ fn arg_parse() -> Result<Arg> {
             })
         }
         "test" => {
+            args.set_default_env("http-addr", "VM_HTTP_ADDR");
+            args.set_default("http-addr", "[::]:8080");
             args.set_default_env("code-file", "VM_CODE");
             Ok(Arg::Test {
+                http_addr: exp!(args, "http-addr").into(),
                 code_file: exp_path!(args, "code-file").into(),
             })
         }
@@ -296,6 +301,7 @@ enum Arg {
         store: Option<std::path::PathBuf>,
     },
     Test {
+        http_addr: String,
         code_file: std::path::PathBuf,
     },
     Health {
@@ -379,7 +385,10 @@ impl Arg {
                 });
                 serve(s, sys_admin, http_addr, store).await
             }
-            Self::Test { code_file } => {
+            Self::Test {
+                http_addr,
+                code_file,
+            } => {
                 let code: Arc<str> =
                     tokio::fs::read_to_string(code_file).await?.into();
 
@@ -393,7 +402,7 @@ impl Arg {
                         }
                     };
 
-                    const URL: &str = "http://127.0.0.1:8080";
+                    let url = format!("http://{addr:?}");
 
                     // check health
                     let client = voidmerge::http_client::HttpClient::new(
@@ -405,7 +414,7 @@ impl Arg {
                             100,
                         ))
                         .await;
-                        if client.health(URL).await.is_ok() {
+                        if client.health(&url).await.is_ok() {
                             is_healthy = true;
                             break;
                         }
@@ -419,7 +428,7 @@ impl Arg {
                     // setup context
                     if let Err(err) = client
                         .ctx_setup(
-                            URL,
+                            &url,
                             "test",
                             crate::server::CtxSetup {
                                 ctx: "test".into(),
@@ -437,7 +446,7 @@ impl Arg {
                     // configure context
                     if let Err(err) = client
                         .ctx_config(
-                            URL,
+                            &url,
                             "test",
                             crate::server::CtxConfig {
                                 ctx: "test".into(),
@@ -453,7 +462,7 @@ impl Arg {
                     // okay, we're running!
                     eprintln!("#vm#listening#{addr:?}#");
                 });
-                serve(s, vec!["test".into()], "[::]:8080".into(), None).await
+                serve(s, vec!["test".into()], http_addr, None).await
             }
             Self::Health { url } => {
                 let client =

@@ -1,3 +1,4 @@
+/*
 import * as VM from "@voidmerge/voidmerge-client";
 
 const CTX: VM.VmHash = VM.VmHash.parse("AAAA");
@@ -201,7 +202,7 @@ class Example1 {
           try {
             await this.#vm.send(peer.ident, enc);
           } catch (_e) {
-            /* pass */
+            / * pass * /
           }
         }
       }
@@ -234,3 +235,4 @@ main().then(
     console.error(err);
   },
 );
+*/

@@ -11,8 +11,6 @@
     "test": "npm test --include-workspace-root -w"
   },
   "dependencies": {
-    "@noble/curves": "^2.0.0",
-    "@noble/hashes": "^2.0.0",
     "base64-js": "^1.5.1",
     "cross-fetch": "^4.1.0",
     "msgpackr": "^1.11.4"

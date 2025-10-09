@@ -297,11 +297,15 @@ impl Server {
         token: Arc<str>,
         ctx: Arc<str>,
         app_path: String,
-        created_secs: f64,
+        mut created_secs: f64,
         expires_secs: f64,
         data: bytes::Bytes,
     ) -> Result<crate::obj::ObjMeta> {
         self.check_ctxadmin(&token, &ctx)?;
+
+        if created_secs < 1.0 {
+            created_secs = safe_now();
+        }
 
         let meta = crate::obj::ObjMeta::new_context(
             &ctx,
