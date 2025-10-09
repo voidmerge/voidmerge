@@ -4,8 +4,8 @@
 *.gif
 target
 node_modules
-/ts/example1/dist/*
-!/ts/example1/dist/index.html
+/ts/doc/dist
+/ts/doc/docs
 /ts/test-integration/dist
 /ts/voidmerge-client/dist
 /ts/voidmerge-client/docs

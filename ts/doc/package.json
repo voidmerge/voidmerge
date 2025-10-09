@@ -1,0 +1,20 @@
+{
+  "name": "@voidmerge/doc",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "type": "module",
+  "scripts": {
+    "doc": "typedoc",
+    "doc-open": "npm run doc && xdg-open docs/index.html",
+    "build": "npm run build --include-workspace-root -w",
+    "test": "npm test --include-workspace-root -w"
+  },
+  "dependencies": {
+    "@voidmerge/voidmerge-client": "^0.0.4",
+    "@voidmerge/voidmerge-code": "^0.0.4"
+  },
+  "devDependencies": {
+    "typedoc": "^0.28.13"
+  }
+}

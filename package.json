@@ -2,6 +2,7 @@
   "name": "@voidmerge/monorepo",
   "private": true,
   "workspaces": [
+    "ts/doc",
     "ts/test-integration",
     "ts/voidmerge-client",
     "ts/voidmerge-code"
