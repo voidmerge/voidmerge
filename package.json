@@ -18,7 +18,7 @@
     "lint": "prettier . --write && prettier . --check",
     "clean": "tsc --build --clean",
     "build:tsc": "tsc --build",
-    "build:bundle:test-integration": "esbuild --bundle ts/test-integration/src/obj-simple.ts --sourcemap --outfile=ts/test-integration/dist/bundle-obj-simple.js",
+    "build:bundle:test-integration": "esbuild --bundle ts/test-integration/src/obj-simple.ts --sourcemap --outfile=ts/test-integration/dist/bundle-obj-simple.js && esbuild --bundle ts/test-integration/src/msg-simple.ts --sourcemap --outfile=ts/test-integration/dist/bundle-msg-simple.js",
     "build:bundle": "npm run build:bundle:test-integration",
     "build": "npm run build:tsc && npm run build:bundle",
     "jest": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js",

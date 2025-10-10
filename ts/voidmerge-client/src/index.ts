@@ -60,6 +60,138 @@ export async function health(url: URL | string) {
 }
 
 /**
+ * A VoidMerge app message.
+ */
+export interface MessageApp {
+  /**
+   * Message type.
+   */
+  type: "app";
+
+  /**
+   * Message payload.
+   */
+  msg: Uint8Array;
+}
+
+/**
+ * A VoidMerge peer message.
+ */
+export interface MessagePeer {
+  /**
+   * Message type.
+   */
+  type: "peer";
+
+  /**
+   * The msgId of the remote peer.
+   */
+  msgId: string;
+
+  /**
+   * Message payload.
+   */
+  msg: Uint8Array;
+}
+
+/**
+ * A VoidMerge message.
+ */
+export type Message = MessageApp | MessagePeer;
+
+/**
+ * A VoidMerge listening websocket connection
+ */
+export class MsgListener {
+  #ws: WebSocket;
+
+  private constructor(ws: WebSocket) {
+    this.#ws = ws;
+  }
+
+  /**
+   * Open a new msg listener websocket connection with the provided handler.
+   */
+  static async connect(input: {
+    url: URL | string;
+    ctx: string;
+    msgId: string;
+    handler: (input: { err?: Error; msg?: Message }) => void;
+  }) {
+    const { url, ctx, msgId, handler } = input;
+    const listenUrl = new URL(url);
+    listenUrl.pathname = `${ctx}/_vm_/msg-listen/${msgId}`;
+    const ws = new WebSocket(url);
+    ws.binaryType = "arraybuffer";
+    return await new Promise((res, rej) => {
+      const timer = setTimeout(() => rej("timeout opening websocket"));
+      ws.onopen = () => {
+        clearTimeout(timer);
+        res(new MsgListener(ws));
+      };
+      ws.onclose = (evt: any) => {
+        clearTimeout(timer);
+        const reason = evt.reason || evt.toString();
+        handler({ err: new Error(`closed: ${reason}`) });
+      };
+      ws.onerror = (err: any) => {
+        clearTimeout(timer);
+        err = err.message || err.type || err.toString();
+        rej(new Error(`ws connect error: ${err}`));
+        handler({ err: new Error(err) });
+      };
+      ws.onmessage = (evt: any) => {
+        if (!evt || typeof evt !== "object") {
+          return;
+        }
+        if (!evt.data) {
+          return;
+        }
+        let buffer: Uint8Array = new Uint8Array(0);
+        if (evt.data instanceof Uint8Array) {
+          buffer = evt.data;
+        } else if (evt.data instanceof ArrayBuffer) {
+          buffer = new Uint8Array(evt.data);
+        } else {
+          return;
+        }
+        const raw = unpack(buffer);
+        if (!raw || typeof raw !== "object" || typeof raw.type !== "string") {
+          return;
+        }
+        if (raw.type === "app") {
+          if (raw.msg instanceof Uint8Array) {
+            handler({
+              msg: {
+                type: "app",
+                msg: raw.msg,
+              },
+            });
+          }
+        } else if (raw.type === "peer") {
+          if (typeof raw.msgId === "string" && raw.msg instanceof Uint8Array) {
+            handler({
+              msg: {
+                type: "peer",
+                msgId: raw.msgId,
+                msg: raw.msg,
+              },
+            });
+          }
+        }
+      };
+    });
+  }
+
+  /**
+   * Close the listener.
+   */
+  async close(): Promise<void> {
+    this.#ws.close();
+  }
+}
+
+/**
  * Put an object into a VoidMerge server context store.
  */
 export async function objPut(input: {
@@ -142,19 +274,3 @@ export async function objGet(input: {
   }
   return raw;
 }
-
-/*
-      this.#url.pathname = `/insert/${ctx.toString()}`;
-      const res = await fetch(this.#url, {
-        body: data,
-        headers: {
-          Authorization: `Bearer ${this.#token?.toString()}`,
-        },
-        method: "PUT",
-      } as RequestInit);
-      if (res.status >= 400) {
-        const msg = await res.text();
-        throw new Error(`error(${res.status}): ${msg}`);
-      }
-      return new Uint8Array(await res.arrayBuffer());
-*/
