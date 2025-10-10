@@ -2,80 +2,7 @@ use std::sync::Arc;
 use voidmerge::*;
 
 fn help() {
-    println!(
-        r#"
-VoidMerge P2p in Easy Mode
-
-Usage: vm <COMMAND> <OPTIONS>
-
-help -h --help            : Print this help
-
-serve                     : Run the VoidMerge HTTP server
-  --sys-admin <SYS_ADMIN> : SysAdmin tokens to set during startup
-                            (env: VM_SYS_ADMIN_TOKENS=, comma delimited)
-  --http-addr <HTTP_ADDR> : Http server address to bind (env: VM_HTTP_ADDR=)
-                            (def: '[::]:8080')
-  --store <PATH>          : Path location for object store file persistance.
-                            (env: VM_STORE=) (def: use a temp dir)
-
-test                      : Run a test server (sysadmin: 'test', ctx: 'test')
-  --http-addr <HTTP_ADDR> : Http server address to bind (env: VM_HTTP_ADDR=)
-                            (def: '[::]:8080')
-  --code-file <PATH>      : Javascript code for the context (env: VM_CODE=)
-
-health                    : Execute a health check against a server
-  --url       <URL>       : The server url (env: VM_URL=)
-
-ctx-setup                 : Setup a context (sysadmin)
-  --url       <URL>       : The server url (env: VM_URL=)
-  --token     <TOKEN>     : The sysadmin api token to use (env: VM_TOKEN=)
-  --context   <CONTEXT>   : The context to configure (env: VM_CTX=)
-  --delete                : If this flag is set, delete the context
-                            Other properties will be ignored (env: VM_DELETE=)
-  --ctx-admin <TOKENS>    : CtxAdmin tokens to setup in the context
-                            (env: VM_CTX_ADMIN_TOKENS=, comma delimited)
-  --timeout-secs          : Timeout for functions (env: VM_TIMEOUT_SECS=)
-                            (def: '10.0')
-  --max-heap-bytes        : Max memory for functions (env: VM_MAX_HEAP_BYTES)
-                            (def: '33554432')
-
-ctx-config                : Configure a context (ctxadmin)
-  --url       <URL>       : The server url (env: VM_URL=)
-  --token     <TOKEN>     : The ctxadmin api token to use (env: VM_TOKEN=)
-  --context   <CONTEXT>   : The context to configure (env: VM_CTX=)
-  --ctx-admin <TOKENS>    : CtxAdmin tokens to setup in the context
-                            (env: VM_CTX_ADMIN_TOKENS=, comma delimited)
-  --code-file <PATH>      : Javascript code for the context (env: VM_CODE=)
-
-obj-list                  : List objects in a context store (ctxadmin)
-  --url       <URL>       : The server url (env: VM_URL=)
-  --token     <TOKEN>     : The ctxadmin api token to use (env: VM_TOKEN=)
-  --context   <CONTEXT>   : The context to configure (env: VM_CTX=)
-  --prefix    <PREFIX>    : The appPathPrefix to filter by (env: VM_PREFIX=)
-  --created-gt <NUMBER>   : Filter by items with created_secs larger than the
-                            supplied number. (env: VM_CREATED_GT=) (def: 0.0)
-  --limit     <NUMBER>    : Limit response to provided number. (env: VM_LIMIT=)
-                            (def: list all items in the store)
-
-obj-get                   : Get an object from a context store (ctxadmin)
-                            Will print the meta path to stderr
-                            Will print the data content to stdout
-  --url       <URL>       : The server url (env: VM_URL=)
-  --token     <TOKEN>     : The ctxadmin api token to use (env: VM_TOKEN=)
-  --context   <CONTEXT>   : The context to configure (env: VM_CTX=)
-  --app-path  <APP_PATH>  : The appPath to fetch (env: VM_APP_PATH=)
-
-obj-put                   : Put an object into the context store (ctxadmin)
-                            Reads data from stdin
-  --url       <URL>       : The server url (env: VM_URL=)
-  --token     <TOKEN>     : The ctxadmin api token to use (env: VM_TOKEN=)
-  --context   <CONTEXT>   : The context to configure (env: VM_CTX=)
-  --app-path  <APP_PATH>  : The appPath to store (env: VM_APP_PATH=)
-  --create    <TIMESTAMP> : The createdSecs to store (env: VM_CREATE=)
-  --expire    <TIMESTAMP> : The expiresSecs to store (env: VM_EXPIRE=)
-
-"#
-    );
+    println!(include_str!("help.txt"));
 }
 
 fn def_split_env(
@@ -256,8 +183,37 @@ fn arg_parse() -> Result<Arg> {
                 token: exp!(args, "token").into(),
                 context: exp!(args, "context").into(),
                 app_path: exp!(args, "app-path").into(),
-                create: exp!(args, "create").parse().map_err(Error::other)?,
-                expire: exp!(args, "expire").parse().map_err(Error::other)?,
+                create: exp!(args, "create").into(),
+                expire: exp!(args, "expire").into(),
+            })
+        }
+        "obj-backup" => {
+            args.set_default_env("url", "VM_URL");
+            args.set_default_env("token", "VM_TOKEN");
+            args.set_default_env("context", "VM_CTX");
+            args.set_default_env("created-gt", "VM_CREATED_GT");
+            args.set_default("created-gt", "0.0");
+            args.set_default_env("zip-file", "VM_ZIP_FILE");
+            Ok(Arg::ObjBackup {
+                url: exp!(args, "url").into(),
+                token: exp!(args, "token").into(),
+                context: exp!(args, "context").into(),
+                created_gt: exp!(args, "created-gt")
+                    .parse()
+                    .map_err(Error::other)?,
+                zip_file: exp_path!(args, "zip-file").into(),
+            })
+        }
+        "obj-restore" => {
+            args.set_default_env("url", "VM_URL");
+            args.set_default_env("token", "VM_TOKEN");
+            args.set_default_env("context", "VM_CTX");
+            args.set_default_env("zip-file", "VM_ZIP_FILE");
+            Ok(Arg::ObjRestore {
+                url: exp!(args, "url").into(),
+                token: exp!(args, "token").into(),
+                context: exp!(args, "context").into(),
+                zip_file: exp_path!(args, "zip-file").into(),
             })
         }
         unk => Err(Error::other(format!("unrecognised command: {unk}"))),
@@ -341,9 +297,22 @@ enum Arg {
         url: String,
         token: Arc<str>,
         context: Arc<str>,
-        app_path: Arc<str>,
-        create: f64,
-        expire: f64,
+        app_path: String,
+        create: String,
+        expire: String,
+    },
+    ObjBackup {
+        url: String,
+        token: Arc<str>,
+        context: Arc<str>,
+        created_gt: f64,
+        zip_file: std::path::PathBuf,
+    },
+    ObjRestore {
+        url: String,
+        token: Arc<str>,
+        context: Arc<str>,
+        zip_file: std::path::PathBuf,
     },
 }
 
@@ -570,20 +539,108 @@ impl Arg {
                 use tokio::io::AsyncReadExt;
                 let mut data = Vec::new();
                 tokio::io::stdin().read_to_end(&mut data).await?;
+                let meta = crate::obj::ObjMeta(
+                    format!("c/{context}/{app_path}/{create}/{expire}").into(),
+                );
                 let client =
                     voidmerge::http_client::HttpClient::new(Default::default());
-                let meta = client
-                    .obj_put(
-                        &url,
-                        &token,
-                        &context,
-                        &app_path,
-                        create,
-                        expire,
-                        data.into(),
-                    )
-                    .await?;
+                let meta =
+                    client.obj_put(&url, &token, meta, data.into()).await?;
                 eprintln!("#vm#meta#{meta}#");
+                Ok(())
+            }
+            Self::ObjBackup {
+                url,
+                token,
+                context,
+                mut created_gt,
+                zip_file,
+            } => {
+                let file = std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(zip_file)?;
+                let mut file = zip::ZipWriter::new(file);
+
+                let client =
+                    voidmerge::http_client::HttpClient::new(Default::default());
+                loop {
+                    let res = client
+                        .obj_list(&url, &token, &context, "", created_gt, 1000)
+                        .await?;
+                    if res.is_empty() {
+                        break;
+                    }
+                    for r in res {
+                        let created_secs = r.created_secs();
+                        if created_secs > created_gt {
+                            created_gt = created_secs;
+                        }
+
+                        let (meta, data) = client
+                            .obj_get(&url, &token, &context, r.app_path())
+                            .await?;
+                        println!("{meta}");
+
+                        let path = meta.app_path().to_string();
+                        #[derive(serde::Serialize)]
+                        struct Item(crate::obj::ObjMeta, bytes::Bytes);
+
+                        use voidmerge::bytes_ext::BytesExt;
+                        let data =
+                            bytes::Bytes::from_encode(&Item(meta, data))?;
+
+                        file = tokio::task::spawn_blocking(move || {
+                            use std::io::Write;
+                            file.start_file(
+                                path,
+                                zip::write::SimpleFileOptions::default(),
+                            )?;
+                            file.write_all(&data)?;
+                            std::io::Result::Ok(file)
+                        })
+                        .await??;
+                    }
+                }
+                eprintln!("#vm#createdGt#{created_gt}#");
+                Ok(())
+            }
+            Self::ObjRestore {
+                url,
+                token,
+                context,
+                zip_file,
+            } => {
+                let file =
+                    std::fs::OpenOptions::new().read(true).open(zip_file)?;
+                let mut file = zip::ZipArchive::new(file)?;
+
+                let client =
+                    voidmerge::http_client::HttpClient::new(Default::default());
+                for idx in 0..file.len() {
+                    let (tmp, meta, data) =
+                        tokio::task::spawn_blocking(move || {
+                            let mut out = Vec::new();
+                            {
+                                let mut read = file.by_index(idx)?;
+                                use std::io::Read;
+                                read.read_to_end(&mut out)?;
+                            }
+                            #[derive(serde::Deserialize)]
+                            struct Item(crate::obj::ObjMeta, bytes::Bytes);
+                            use voidmerge::bytes_ext::BytesExt;
+                            let item: Item =
+                                bytes::Bytes::from(out).to_decode()?;
+                            Result::Ok((file, item.0, item.1))
+                        })
+                        .await??;
+                    println!("{meta}");
+                    file = tmp;
+                    if meta.ctx() != &*context {
+                        return Err(Error::other("context mismatch"));
+                    }
+                    client.obj_put(&url, &token, meta, data).await?;
+                }
                 Ok(())
             }
         }

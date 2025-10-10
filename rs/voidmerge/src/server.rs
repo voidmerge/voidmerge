@@ -295,24 +295,27 @@ impl Server {
     pub async fn obj_put(
         &self,
         token: Arc<str>,
-        ctx: Arc<str>,
-        app_path: String,
-        mut created_secs: f64,
-        expires_secs: f64,
+        meta: crate::obj::ObjMeta,
         data: bytes::Bytes,
     ) -> Result<crate::obj::ObjMeta> {
+        let ctx: Arc<str> = meta.ctx().into();
         self.check_ctxadmin(&token, &ctx)?;
 
-        if created_secs < 1.0 {
-            created_secs = safe_now();
-        }
+        let cs = meta.created_secs();
+        let cs = if cs < 1.0 {
+            safe_now().to_string()
+        } else {
+            meta.0.split('/').nth(3).unwrap_or("").to_string()
+        };
 
-        let meta = crate::obj::ObjMeta::new_context(
-            &ctx,
-            &app_path,
-            created_secs,
-            expires_secs,
-            data.len() as f64,
+        let meta = crate::obj::ObjMeta(
+            format!(
+                "c/{ctx}/{}/{cs}/{}/{}",
+                meta.app_path(),
+                meta.expires_secs(),
+                data.len(),
+            )
+            .into(),
         );
 
         let c = match self.ctx_map.lock().unwrap().get(&ctx) {

@@ -178,20 +178,18 @@ impl HttpClient {
     pub async fn obj_put(
         &self,
         url: &str,
-        ctx: &str,
         token: &str,
-        app_path: &str,
-        created_secs: f64,
-        expires_secs: f64,
+        meta: crate::obj::ObjMeta,
         data: bytes::Bytes,
     ) -> Result<crate::obj::ObjMeta> {
-        safe_str(ctx)?;
-        safe_str(app_path)?;
         let mut url: reqwest::Url =
             url.parse().map_err(std::io::Error::other)?;
-        url.set_path(&format!(
-            "{ctx}/_vm_/obj-put/{app_path}/{created_secs}/{expires_secs}"
-        ));
+        let ctx = meta.ctx();
+        let mut iter = meta.splitn(3, '/');
+        iter.next();
+        iter.next();
+        let rest = iter.next().unwrap_or("");
+        url.set_path(&format!("{ctx}/_vm_/obj-put/{rest}"));
         let token = format!("Bearer {}", &token);
         let res = self
             .client

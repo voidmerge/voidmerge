@@ -1,0 +1,84 @@
+VoidMerge P2p in Easy Mode
+
+Usage: vm <COMMAND> <OPTIONS>
+
+help -h --help            : Print this help
+
+serve                     : Run the VoidMerge HTTP server
+  --sys-admin <SYS_ADMIN> : SysAdmin tokens to set during startup
+                            (env: VM_SYS_ADMIN_TOKENS=, comma delimited)
+  --http-addr <HTTP_ADDR> : Http server address to bind (env: VM_HTTP_ADDR=)
+                            (def: '[::]:8080')
+  --store <PATH>          : Path location for object store file persistance.
+                            (env: VM_STORE=) (def: use a temp dir)
+
+test                      : Run a test server (sysadmin: 'test', ctx: 'test')
+  --http-addr <HTTP_ADDR> : Http server address to bind (env: VM_HTTP_ADDR=)
+                            (def: '[::]:8080')
+  --code-file <PATH>      : Javascript code for the context (env: VM_CODE=)
+
+health                    : Execute a health check against a server
+  --url       <URL>       : The server url (env: VM_URL=)
+
+ctx-setup                 : Setup a context (sysadmin)
+  --url       <URL>       : The server url (env: VM_URL=)
+  --token     <TOKEN>     : The sysadmin api token to use (env: VM_TOKEN=)
+  --context   <CONTEXT>   : The context to configure (env: VM_CTX=)
+  --delete                : If this flag is set, delete the context
+                            Other properties will be ignored (env: VM_DELETE=)
+  --ctx-admin <TOKENS>    : CtxAdmin tokens to setup in the context
+                            (env: VM_CTX_ADMIN_TOKENS=, comma delimited)
+  --timeout-secs          : Timeout for functions (env: VM_TIMEOUT_SECS=)
+                            (def: '10.0')
+  --max-heap-bytes        : Max memory for functions (env: VM_MAX_HEAP_BYTES)
+                            (def: '33554432')
+
+ctx-config                : Configure a context (ctxadmin)
+  --url       <URL>       : The server url (env: VM_URL=)
+  --token     <TOKEN>     : The ctxadmin api token to use (env: VM_TOKEN=)
+  --context   <CONTEXT>   : The context to configure (env: VM_CTX=)
+  --ctx-admin <TOKENS>    : CtxAdmin tokens to setup in the context
+                            (env: VM_CTX_ADMIN_TOKENS=, comma delimited)
+  --code-file <PATH>      : Javascript code for the context (env: VM_CODE=)
+
+obj-list                  : List objects in a context store (ctxadmin)
+  --url       <URL>       : The server url (env: VM_URL=)
+  --token     <TOKEN>     : The ctxadmin api token to use (env: VM_TOKEN=)
+  --context   <CONTEXT>   : The context to configure (env: VM_CTX=)
+  --prefix    <PREFIX>    : The appPathPrefix to filter by (env: VM_PREFIX=)
+  --created-gt <NUMBER>   : Filter by items with created_secs larger than the
+                            supplied number. (env: VM_CREATED_GT=) (def: 0.0)
+  --limit     <NUMBER>    : Limit response to provided number. (env: VM_LIMIT=)
+                            (def: list all items in the store)
+
+obj-get                   : Get an object from a context store (ctxadmin)
+                            Will print the meta path to stderr
+                            Will print the data content to stdout
+  --url       <URL>       : The server url (env: VM_URL=)
+  --token     <TOKEN>     : The ctxadmin api token to use (env: VM_TOKEN=)
+  --context   <CONTEXT>   : The context to configure (env: VM_CTX=)
+  --app-path  <APP_PATH>  : The appPath to fetch (env: VM_APP_PATH=)
+
+obj-put                   : Put an object into the context store (ctxadmin)
+                            Reads data from stdin
+  --url       <URL>       : The server url (env: VM_URL=)
+  --token     <TOKEN>     : The ctxadmin api token to use (env: VM_TOKEN=)
+  --context   <CONTEXT>   : The context to configure (env: VM_CTX=)
+  --app-path  <APP_PATH>  : The appPath to store (env: VM_APP_PATH=)
+  --create    <TIMESTAMP> : The createdSecs to store (env: VM_CREATE=)
+  --expire    <TIMESTAMP> : The expiresSecs to store (env: VM_EXPIRE=)
+
+obj-backup                : Backup an object store to a local zipfile (ctxadmin)
+  --url       <URL>       : The server url (env: VM_URL=)
+  --token     <TOKEN>     : The ctxadmin api token to use (env: VM_TOKEN=)
+  --context   <CONTEXT>   : The context to configure (env: VM_CTX=)
+  --created-gt <NUMBER>   : Filter by items with created_secs larger than the
+                            supplied number. This allows for incrementals.
+                            (env: VM_CREATED_GT=) (def: 0.0)
+  --zip-file  <PATH>      : Where to store the backup (env: VM_ZIP_FILE=)
+
+obj-restore               : Push objects from a zipfile to a store (ctxadmin)
+  --url       <URL>       : The server url (env: VM_URL=)
+  --token     <TOKEN>     : The ctxadmin api token to use (env: VM_TOKEN=)
+  --context   <CONTEXT>   : The context to configure (env: VM_CTX=)
+  --zip-file  <PATH>      : The backup to restore (env: VM_ZIP_FILE=)

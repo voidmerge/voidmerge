@@ -100,6 +100,14 @@ pub async fn http_server(
             axum::routing::put(route_ctx_config_put),
         )
         .route(
+            "/{ctx}/_vm_/obj-list",
+            axum::routing::get(route_ctx_obj_list_all),
+        )
+        .route(
+            "/{ctx}/_vm_/obj-list/",
+            axum::routing::get(route_ctx_obj_list_all),
+        )
+        .route(
             "/{ctx}/_vm_/obj-list/{app_path_prefix}",
             axum::routing::get(route_ctx_obj_list),
         )
@@ -108,7 +116,7 @@ pub async fn http_server(
             axum::routing::get(route_ctx_obj_get),
         )
         .route(
-            "/{ctx}/_vm_/obj-put/{app_path}/{created_secs}/{expires_secs}",
+            "/{ctx}/_vm_/obj-put/{*path}",
             axum::routing::put(route_ctx_obj_put),
         )
         .route("/{ctx}/{*path}", axum::routing::get(route_fn_get))
@@ -209,6 +217,27 @@ struct ObjListOutput {
     meta_list: Vec<crate::obj::ObjMeta>,
 }
 
+async fn route_ctx_obj_list_all(
+    headers: axum::http::HeaderMap,
+    axum::extract::Path(ctx): axum::extract::Path<String>,
+    axum::extract::Query(query): axum::extract::Query<ObjListQuery>,
+    axum::extract::ConnectInfo(_addr): axum::extract::ConnectInfo<
+        std::net::SocketAddr,
+    >,
+    axum::extract::State(state): axum::extract::State<Arc<State>>,
+) -> AxumResult {
+    let token = auth_token(&headers);
+    let limit = query.limit.clamp(0.0, 1000.0).floor() as u32;
+    let result = state
+        .server
+        .obj_list(token, ctx.into(), "".into(), query.created_gt, limit)
+        .await?;
+    Ok(
+        bytes::Bytes::from_encode(&ObjListOutput { meta_list: result })?
+            .into_response(),
+    )
+}
+
 async fn route_ctx_obj_list(
     headers: axum::http::HeaderMap,
     axum::extract::Path((ctx, app_path_prefix)): axum::extract::Path<(
@@ -264,7 +293,7 @@ async fn route_ctx_obj_get(
 
 async fn route_ctx_obj_put(
     headers: axum::http::HeaderMap,
-    axum::extract::Path((ctx, app_path, created_secs, expires_secs)): axum::extract::Path<(String, String, String, String)>,
+    axum::extract::Path((ctx, path)): axum::extract::Path<(String, String)>,
     axum::extract::ConnectInfo(_addr): axum::extract::ConnectInfo<
         std::net::SocketAddr,
     >,
@@ -272,17 +301,8 @@ async fn route_ctx_obj_put(
     payload: bytes::Bytes,
 ) -> AxumResult {
     let token = auth_token(&headers);
-    let meta = state
-        .server
-        .obj_put(
-            token,
-            ctx.into(),
-            app_path,
-            created_secs.parse()?,
-            expires_secs.parse()?,
-            payload,
-        )
-        .await?;
+    let meta = crate::obj::ObjMeta(format!("c/{ctx}/{path}").into());
+    let meta = state.server.obj_put(token, meta, payload).await?;
     Ok(meta.0.to_string().into_response())
 }
 

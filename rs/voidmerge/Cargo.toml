@@ -12,66 +12,37 @@ keywords = [ "p2p", "verify", "verifiable" ]
 categories = [ "database", "database-implementations", "network-programming", "web-programming" ]
 
 [dependencies]
-#app_dirs2 = { workspace = true, optional = true }
 axum = { workspace = true, optional = true, features = [ "macros", "ws" ] }
 axum-server = { workspace = true, optional = true }
 base64 = { workspace = true }
 bytes = { workspace = true, features = [ "serde" ] }
 deno_core = { workspace = true }
-#digest = { workspace = true }
-#ed25519-dalek = { workspace = true, features = [ "digest", "rand_core" ], optional = true }
-#fd-lock = { workspace = true }
-#futures = { workspace = true }
-#maplit = { workspace = true }
-#mime_guess = { workspace = true, optional = true }
 minimist = { workspace = true, optional = true }
-#num_cpus = { workspace = true }
-#oqs = { workspace = true, default-features = false, features = [ "std", "ml_dsa" ], optional = true }
-#p256 = { workspace = true, optional = true }
 rand = { workspace = true }
 reqwest = { workspace = true }
 rmp-serde = { workspace = true }
 rustyscript = { version = "0.12.3", default-features = false, features = ["web_stub", "url", "crypto", "console"] }
 serde = { workspace = true, features = [ "derive", "rc" ] }
 serde_json = { workspace = true }
-#serde_v8 = { workspace = true, optional = true }
 sha2 = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = [ "sync", "fs", "rt", "io-util" ] }
 tower-http = { workspace = true, optional = true, features = [ "cors" ] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, optional = true, features = [ "env-filter" ] }
-#v8 = { workspace = true, optional = true }
-#zeroize = { workspace = true, features = [ "derive" ] }
-#zip = { workspace = true, optional = true }
+zip = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = [ "full" ] }
 
 [features]
-#default = [ "http-server", "vm", "v8", "p256", "ml_dsa", "ed25519" ]
 default = [ "http-server", "cli" ]
 
 # The http server types.
 http-server = [ "dep:axum", "dep:axum-server", "dep:tower-http" ]
 
 # The cli tool.
-cli = [ "dep:minimist", "tokio/full", "dep:tracing-subscriber" ]
-
-# The cli tool.
-#vm = [ "dep:app_dirs2", "dep:clap", "dep:mime_guess", "tokio/full", "dep:tracing-subscriber", "dep:zip" ]
-
-# Build and include the v8 validation module.
-#v8 = [ "dep:v8", "dep:serde_v8" ]
-
-# Build and include the p256 signing module.
-#p256 = [ "dep:p256" ]
-
-# Build and include the ml dsa signing modules.
-#ml_dsa = [ "dep:oqs" ]
-
-# Build and include the ed25519 signing module.
-#ed25519 = [ "dep:ed25519-dalek" ]
+cli = [ "dep:minimist", "tokio/full", "dep:tracing-subscriber", "dep:zip" ]
 
 [package.metadata.docs.rs]
 all-features = true
