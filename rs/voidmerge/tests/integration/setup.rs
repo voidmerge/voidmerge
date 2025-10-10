@@ -80,11 +80,15 @@ impl Test {
         let ctx = nonce();
         let admin = nonce();
 
-        let obj = voidmerge::obj::obj_file::ObjFile::create(None)
-            .await
-            .unwrap();
-        let js = voidmerge::js::JsExecDefault::create();
-        let server = voidmerge::server::Server::new(obj, js).await.unwrap();
+        let runtime = voidmerge::RuntimeHandle::default();
+        runtime.set_obj(
+            voidmerge::obj::obj_file::ObjFile::create(None)
+                .await
+                .unwrap(),
+        );
+        runtime.set_js(voidmerge::js::JsExecDefault::create());
+        runtime.set_msg(voidmerge::msg::MsgMem::create());
+        let server = voidmerge::server::Server::new(runtime).await.unwrap();
         server.set_sys_admin(vec![admin.clone()]).await.unwrap();
         server
             .ctx_setup_put(

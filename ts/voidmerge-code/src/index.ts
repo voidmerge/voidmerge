@@ -1,4 +1,5 @@
 export { ObjMeta } from "./obj-meta.js";
+
 import { ObjMeta } from "./obj-meta.js";
 
 type VmRawReq =
@@ -17,6 +18,9 @@ type VmRawReq =
 
 interface GlobalVM {
   ctx(): string;
+  msgNew(): Promise<{ msgId: string }>;
+  msgList(): Promise<{ msgIdList: string[] }>;
+  msgSend(input: { msgId: string; msg: Uint8Array }): Promise<void>;
   objPut(input: { meta: string; data: Uint8Array }): Promise<{ meta: string }>;
   objList(input: {
     appPathPrefix: string;
@@ -252,6 +256,32 @@ export function defineVoidMergeHandler(handler: VoidMergeHandler) {
  */
 export function ctx(): string {
   return globalThis.VM.ctx();
+}
+
+/**
+ * Create a new message channel for communicating with clients.
+ */
+export async function msgNew(): Promise<{ msgId: string }> {
+  return await globalThis.VM.msgNew();
+}
+
+/**
+ * List the active (or pending) message channels.
+ */
+export async function msgList(): Promise<{ msgIdList: string[] }> {
+  return await globalThis.VM.msgList();
+}
+
+/**
+ * Send a message to the given message channel.
+ * This message will be received with type 'app', as opposed to a
+ * message sent by a peer client, which will receive type 'peer'.
+ */
+export async function msgSend(input: {
+  msgId: string;
+  msg: Uint8Array;
+}): Promise<void> {
+  return await globalThis.VM.msgSend(input);
 }
 
 /**

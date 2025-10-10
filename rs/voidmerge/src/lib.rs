@@ -16,6 +16,7 @@
 
 pub mod error;
 pub use error::{Error, ErrorExt, Result};
+use std::sync::{Arc, Weak};
 
 /// A boxed future.
 pub type BoxFut<'lt, T> =
@@ -68,12 +69,112 @@ fn safe_str(s: &str) -> Result<()> {
     Ok(())
 }
 
+#[derive(Default)]
+struct RuntimeInner {
+    pub obj: std::sync::OnceLock<obj::ObjWrap>,
+    pub js: std::sync::OnceLock<js::DynJsExec>,
+    pub msg: std::sync::OnceLock<msg::DynMsg>,
+}
+
+/// A cloneable runtime instance that can be passed to modules.
+#[derive(Debug, Clone)]
+pub struct Runtime(Weak<RuntimeInner>, u64);
+
+impl std::hash::Hash for Runtime {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.1.hash(state);
+    }
+}
+
+impl PartialEq for Runtime {
+    fn eq(&self, oth: &Self) -> bool {
+        self.1 == oth.1
+    }
+}
+
+impl Eq for Runtime {}
+
+impl Runtime {
+    /// Get the obj module.
+    pub fn obj(&self) -> Result<obj::ObjWrap> {
+        Ok(self
+            .0
+            .upgrade()
+            .ok_or_else(|| Error::other("closing"))?
+            .obj
+            .get()
+            .ok_or_else(|| Error::other("closing"))?
+            .clone())
+    }
+
+    /// Get the js module.
+    pub fn js(&self) -> Result<js::DynJsExec> {
+        Ok(self
+            .0
+            .upgrade()
+            .ok_or_else(|| Error::other("closing"))?
+            .js
+            .get()
+            .ok_or_else(|| Error::other("closing"))?
+            .clone())
+    }
+
+    /// Get the msg module.
+    pub fn msg(&self) -> Result<msg::DynMsg> {
+        Ok(self
+            .0
+            .upgrade()
+            .ok_or_else(|| Error::other("closing"))?
+            .msg
+            .get()
+            .ok_or_else(|| Error::other("closing"))?
+            .clone())
+    }
+}
+
+/// VoidMerge [Runtime] manages module interdependencies.
+pub struct RuntimeHandle(Arc<RuntimeInner>, u64);
+
+impl Default for RuntimeHandle {
+    fn default() -> Self {
+        static UNIQ: std::sync::atomic::AtomicU64 =
+            std::sync::atomic::AtomicU64::new(1);
+        Self(
+            Default::default(),
+            UNIQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+        )
+    }
+}
+
+impl RuntimeHandle {
+    /// Set the obj module for this runtime.
+    pub fn set_obj(&self, obj: obj::ObjWrap) {
+        let _ = self.0.obj.set(obj);
+    }
+
+    /// Set the js module for this runtime.
+    pub fn set_js(&self, js: js::DynJsExec) {
+        let _ = self.0.js.set(js);
+    }
+
+    /// Set the msg module for this runtime.
+    pub fn set_msg(&self, msg: msg::DynMsg) {
+        let _ = self.0.msg.set(msg);
+    }
+
+    /// Get a clonable runtime instance that can be passed to modules.
+    pub fn runtime(&self) -> Runtime {
+        Runtime(Arc::downgrade(&self.0), self.1)
+    }
+}
+
 pub mod bytes_ext;
 pub(crate) mod ctx;
 pub mod http_client;
 #[cfg(feature = "http-server")]
 pub mod http_server;
 pub mod js;
+pub mod msg;
 pub mod obj;
 pub mod server;
 

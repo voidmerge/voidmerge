@@ -17,6 +17,7 @@ axum-server = { workspace = true, optional = true }
 base64 = { workspace = true }
 bytes = { workspace = true, features = [ "serde" ] }
 deno_core = { workspace = true }
+futures = { workspace = true, optional = true }
 minimist = { workspace = true, optional = true }
 rand = { workspace = true }
 reqwest = { workspace = true }
@@ -39,7 +40,7 @@ tokio = { workspace = true, features = [ "full" ] }
 default = [ "http-server", "cli" ]
 
 # The http server types.
-http-server = [ "dep:axum", "dep:axum-server", "dep:tower-http" ]
+http-server = [ "dep:axum", "dep:axum-server", "dep:futures", "dep:tower-http" ]
 
 # The cli tool.
 cli = [ "dep:minimist", "tokio/full", "dep:tracing-subscriber", "dep:zip" ]

@@ -11,7 +11,3 @@
 This is the web-client library for interacting with a VoidMerge server instance.
 
 Please see the [Typescript API Docs](https://voidmerge.com/ts).
-
-```ts
-
-```

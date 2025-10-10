@@ -11,7 +11,3 @@
 This is the type library for writing VoidMerge service code.
 
 Please see the [Typescript API Docs](https://voidmerge.com/ts).
-
-```ts
-
-```

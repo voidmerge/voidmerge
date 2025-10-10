@@ -325,11 +325,12 @@ async fn serve(
     let http_addr: std::net::SocketAddr = http_addr.parse().map_err(|err| {
         Error::other(err).with_info("failed to parse http server bind address")
     })?;
-    let server = server::Server::new(
-        obj::obj_file::ObjFile::create(store).await?,
-        js::JsExecDefault::create(),
-    )
-    .await?;
+    let runtime = RuntimeHandle::default();
+    runtime.set_obj(obj::obj_file::ObjFile::create(store).await?);
+    runtime.set_js(js::JsExecDefault::create());
+    runtime.set_msg(msg::MsgMem::create());
+
+    let server = server::Server::new(runtime).await?;
     server.set_sys_admin(sys_admin).await?;
     http_server::http_server(s, http_addr, server).await
 }

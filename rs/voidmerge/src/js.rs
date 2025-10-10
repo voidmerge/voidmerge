@@ -75,8 +75,11 @@ fn js_global_get_max_thread() -> usize {
 }
 
 /// Javascript setup info.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct JsSetup {
+    /// The current VoidMerge runtime.
+    pub runtime: Runtime,
+
     /// The current context.
     pub ctx: Arc<str>,
 
@@ -90,15 +93,13 @@ pub struct JsSetup {
     pub code: Arc<str>,
 }
 
-impl Default for JsSetup {
-    fn default() -> Self {
-        Self {
-            ctx: Default::default(),
-            timeout: std::time::Duration::from_secs(10),
-            heap_size: 1024 * 1024 * 32,
-            code: Default::default(),
-        }
-    }
+impl JsSetup {
+    /// Default timeout.
+    pub const DEF_TIMEOUT: std::time::Duration =
+        std::time::Duration::from_secs(10);
+
+    /// Default heap size.
+    pub const DEF_HEAP_SIZE: usize = 1024 * 1024 * 32;
 }
 
 static JS: std::sync::OnceLock<Js> = std::sync::OnceLock::new();
@@ -109,7 +110,6 @@ pub trait JsExec: 'static + Send + Sync {
     fn exec(
         &self,
         setup: JsSetup,
-        obj: crate::obj::ObjWrap,
         request: JsRequest,
     ) -> BoxFut<'_, Result<JsResponse>>;
 }
@@ -135,12 +135,11 @@ impl JsExec for JsExecDefault {
     fn exec(
         &self,
         setup: JsSetup,
-        obj: crate::obj::ObjWrap,
         request: JsRequest,
     ) -> BoxFut<'_, Result<JsResponse>> {
         Box::pin(async move {
             JS.get_or_init(Js::new)
-                .exec(setup, obj, request, self.0.clone())
+                .exec(setup, request, self.0.clone())
                 .await
         })
     }
@@ -164,7 +163,6 @@ impl Js {
     pub async fn exec(
         &self,
         setup: JsSetup,
-        obj: crate::obj::ObjWrap,
         request: JsRequest,
         weak: WeakJsExec,
     ) -> Result<JsResponse> {
@@ -188,7 +186,7 @@ impl Js {
 
         let thread = found.unwrap();
 
-        let out = thread.exec(setup.clone(), obj, request, weak).await;
+        let out = thread.exec(setup.clone(), request, weak).await;
 
         if thread.is_ready() {
             self.pool.lock().unwrap().put_thread(setup, thread);
@@ -272,16 +270,11 @@ use std::rc::Rc;
 struct TState {
     pub setup: JsSetup,
     pub weak: WeakJsExec,
-    pub obj: crate::obj::ObjWrap,
 }
 
 impl TState {
-    pub fn new(
-        setup: JsSetup,
-        weak: WeakJsExec,
-        obj: crate::obj::ObjWrap,
-    ) -> Self {
-        TState { setup, weak, obj }
+    pub fn new(setup: JsSetup, weak: WeakJsExec) -> Self {
+        TState { setup, weak }
     }
 }
 
@@ -314,6 +307,94 @@ mod deno_ext {
         String::from_utf8_lossy(input).to_string()
     }
 
+    #[derive(Debug, serde::Serialize)]
+    struct MsgNewOutput {
+        #[serde(rename = "msgId")]
+        msg_id: Arc<str>,
+    }
+
+    #[deno_core::op2(async)]
+    #[serde]
+    async fn op_msg_new(
+        state: Rc<RefCell<OpState>>,
+    ) -> std::result::Result<MsgNewOutput, deno_core::error::CoreError> {
+        let setup = match state.borrow().try_borrow::<TState>() {
+            Some(TState { setup, .. }) => setup.clone(),
+            _ => {
+                return Err(deno_core::error::CoreErrorKind::Io(Error::other(
+                    "bad state",
+                ))
+                .into());
+            }
+        };
+
+        let msg_id = setup.runtime.msg()?.create(setup.ctx).await?;
+
+        Ok(MsgNewOutput { msg_id })
+    }
+
+    #[derive(Debug, serde::Serialize)]
+    struct MsgListOutput {
+        #[serde(rename = "msgIdList")]
+        msg_id_list: Vec<Arc<str>>,
+    }
+
+    #[deno_core::op2(async)]
+    #[serde]
+    async fn op_msg_list(
+        state: Rc<RefCell<OpState>>,
+    ) -> std::result::Result<MsgListOutput, deno_core::error::CoreError> {
+        let setup = match state.borrow().try_borrow::<TState>() {
+            Some(TState { setup, .. }) => setup.clone(),
+            _ => {
+                return Err(deno_core::error::CoreErrorKind::Io(Error::other(
+                    "bad state",
+                ))
+                .into());
+            }
+        };
+
+        let msg_id_list = setup.runtime.msg()?.list(setup.ctx).await?;
+
+        Ok(MsgListOutput { msg_id_list })
+    }
+
+    #[derive(Debug, serde::Deserialize)]
+    struct MsgSendInput {
+        #[serde(rename = "msgId")]
+        msg_id: Arc<str>,
+
+        msg: bytes::Bytes,
+    }
+
+    #[deno_core::op2(async)]
+    async fn op_msg_send(
+        state: Rc<RefCell<OpState>>,
+        #[serde] input: MsgSendInput,
+    ) -> std::result::Result<(), deno_core::error::CoreError> {
+        let setup = match state.borrow().try_borrow::<TState>() {
+            Some(TState { setup, .. }) => setup.clone(),
+            _ => {
+                return Err(deno_core::error::CoreErrorKind::Io(Error::other(
+                    "bad state",
+                ))
+                .into());
+            }
+        };
+
+        setup
+            .runtime
+            .msg()?
+            .send(
+                setup.ctx,
+                input.msg_id,
+                crate::msg::Message::App { msg: input.msg },
+            )
+            .await?;
+
+        Ok(())
+    }
+
     #[derive(Debug, serde::Deserialize)]
     struct ObjPutInput {
         #[serde(default)]
@@ -334,10 +415,8 @@ mod deno_ext {
         state: Rc<RefCell<OpState>>,
         #[serde] input: ObjPutInput,
     ) -> std::result::Result<ObjPutOutput, deno_core::error::CoreError> {
-        let (setup, weak, obj) = match state.borrow().try_borrow::<TState>() {
-            Some(TState {
-                setup, weak, obj, ..
-            }) => (setup.clone(), weak.clone(), obj.clone()),
+        let (setup, weak) = match state.borrow().try_borrow::<TState>() {
+            Some(TState { setup, weak }) => (setup.clone(), weak.clone()),
             _ => {
                 return Err(deno_core::error::CoreErrorKind::Io(Error::other(
                     "bad state",
@@ -360,7 +439,6 @@ mod deno_ext {
             match exec
                 .exec(
                     setup.clone(),
-                    obj.clone(),
                     JsRequest::ObjCheckReq {
                         data: input.data.clone(),
                         meta: meta.clone(),
@@ -385,11 +463,16 @@ mod deno_ext {
             .into());
         }
 
-        obj.put(meta.clone(), input.data).await.map_err(|err| {
-            deno_core::error::CoreError::from(
-                deno_core::error::CoreErrorKind::Io(err),
-            )
-        })?;
+        setup
+            .runtime
+            .obj()?
+            .put(meta.clone(), input.data)
+            .await
+            .map_err(|err| {
+                deno_core::error::CoreError::from(
+                    deno_core::error::CoreErrorKind::Io(err),
+                )
+            })?;
 
         Ok(ObjPutOutput { meta: meta.0 })
     }
@@ -412,8 +495,8 @@ mod deno_ext {
         state: Rc<RefCell<OpState>>,
         #[serde] input: ObjGetInput,
     ) -> std::result::Result<ObjGetOutput, deno_core::error::CoreError> {
-        let (setup, obj) = match state.borrow().try_borrow::<TState>() {
-            Some(TState { setup, obj, .. }) => (setup.clone(), obj.clone()),
+        let setup = match state.borrow().try_borrow::<TState>() {
+            Some(TState { setup, .. }) => setup.clone(),
             _ => {
                 return Err(deno_core::error::CoreErrorKind::Io(Error::other(
                     "bad state",
@@ -435,11 +518,12 @@ mod deno_ext {
             ))
             .into());
         }
-        let (meta, data) = obj.get(meta).await.map_err(|err| {
-            deno_core::error::CoreError::from(
-                deno_core::error::CoreErrorKind::Io(err),
-            )
-        })?;
+        let (meta, data) =
+            setup.runtime.obj()?.get(meta).await.map_err(|err| {
+                deno_core::error::CoreError::from(
+                    deno_core::error::CoreErrorKind::Io(err),
+                )
+            })?;
 
         Ok(ObjGetOutput { meta: meta.0, data })
     }
@@ -472,8 +556,8 @@ mod deno_ext {
         state: Rc<RefCell<OpState>>,
         #[serde] input: ObjListInput,
     ) -> std::result::Result<ObjListOutput, deno_core::error::CoreError> {
-        let (setup, obj) = match state.borrow().try_borrow::<TState>() {
-            Some(TState { setup, obj, .. }) => (setup.clone(), obj.clone()),
+        let setup = match state.borrow().try_borrow::<TState>() {
+            Some(TState { setup, .. }) => setup.clone(),
             _ => {
                 return Err(deno_core::error::CoreErrorKind::Io(Error::other(
                     "bad state",
@@ -491,14 +575,16 @@ mod deno_ext {
 
         let limit = input.limit.clamp(0.0, 1000.0) as u32;
 
-        let result =
-            obj.list(&path, input.created_gt, limit)
-                .await
-                .map_err(|err| {
-                    deno_core::error::CoreError::from(
-                        deno_core::error::CoreErrorKind::Io(err),
-                    )
-                })?;
+        let result = setup
+            .runtime
+            .obj()?
+            .list(&path, input.created_gt, limit)
+            .await
+            .map_err(|err| {
+                deno_core::error::CoreError::from(
+                    deno_core::error::CoreErrorKind::Io(err),
+                )
+            })?;
 
         Ok(ObjListOutput { meta_list: result })
     }
@@ -510,6 +596,9 @@ mod deno_ext {
             op_get_ctx,
             op_to_utf8,
             op_from_utf8,
+            op_msg_new,
+            op_msg_list,
+            op_msg_send,
             op_obj_put,
             op_obj_get,
             op_obj_list,
@@ -526,7 +615,6 @@ enum Cmd {
     Kill,
     Exec {
         setup: JsSetup,
-        obj: crate::obj::ObjWrap,
         request: JsRequest,
         weak: WeakJsExec,
         output: tokio::sync::oneshot::Sender<Result<JsResponse>>,
@@ -564,7 +652,6 @@ impl JsThread {
     pub async fn exec(
         &self,
         setup: JsSetup,
-        obj: crate::obj::ObjWrap,
         request: JsRequest,
         weak: WeakJsExec,
     ) -> Result<JsResponse> {
@@ -574,7 +661,6 @@ impl JsThread {
             .unwrap()
             .send(Cmd::Exec {
                 setup,
-                obj,
                 request,
                 weak,
                 output,
@@ -608,7 +694,6 @@ impl JsThread {
             let on_drop = on_drop;
 
             let mut cur_setup;
-            let mut cur_obj;
             let mut cur_request;
             let mut cur_weak;
             let mut cur_output;
@@ -618,13 +703,11 @@ impl JsThread {
                 Some(Cmd::Kill) => return,
                 Some(Cmd::Exec {
                     setup,
-                    obj,
                     request,
                     weak,
                     output,
                 }) => {
                     cur_setup = setup;
-                    cur_obj = obj;
                     cur_request = request;
                     cur_weak = weak;
                     cur_output = output;
@@ -643,12 +726,8 @@ impl JsThread {
 
                 let mut rust = rustyscript::Runtime::new(opts).unwrap();
 
-                rust.put(TState::new(
-                    cur_setup.clone(),
-                    cur_weak.clone(),
-                    cur_obj,
-                ))
-                .unwrap();
+                rust.put(TState::new(cur_setup.clone(), cur_weak.clone()))
+                    .unwrap();
 
                 if let Err(err) = rust.eval::<()>(&cur_setup.code) {
                     on_drop.not_ready();
@@ -704,14 +783,12 @@ impl JsThread {
                         Some(Cmd::Kill) => return,
                         Some(Cmd::Exec {
                             setup,
-                            obj,
                             request,
                             weak,
                             output,
                         }) => {
                             let reset = cur_setup != setup;
                             cur_setup = setup;
-                            cur_obj = obj;
                             cur_request = request;
                             cur_weak = weak;
                             cur_output = output;
@@ -738,10 +815,12 @@ mod test {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn js_simple() {
+        let rth = RuntimeHandle::default();
         let obj = obj::obj_file::ObjFile::create(None).await.unwrap();
-        let obj = obj::ObjWrap::new(obj).await.unwrap();
+        rth.set_obj(obj);
 
         let setup = JsSetup {
+            runtime: rth.runtime(),
             ctx: "bobbo".into(),
             code: "
 async function vm(req) {
@@ -786,7 +865,8 @@ async function vm(req) {
 }
 "
             .into(),
-            ..Default::default()
+            timeout: JsSetup::DEF_TIMEOUT,
+            heap_size: JsSetup::DEF_HEAP_SIZE,
         };
 
         let req = JsRequest::FnReq {
@@ -798,16 +878,19 @@ async function vm(req) {
 
         let js = JsExecDefault::create();
 
-        let res = js
-            .exec(setup.clone(), obj.clone(), req.clone())
-            .await
-            .unwrap();
+        let res = js.exec(setup.clone(), req.clone()).await.unwrap();
         println!("got: {res:#?}");
-        let res = js.exec(setup, obj.clone(), req).await.unwrap();
+        let res = js.exec(setup, req).await.unwrap();
         println!("got: {res:#?}");
 
         let prefix = format!("{}/bobbo/", crate::obj::ObjMeta::SYS_CTX);
-        let p = obj.list(&prefix, 0.0, u32::MAX).await.unwrap();
+        let p = rth
+            .runtime()
+            .obj()
+            .unwrap()
+            .list(&prefix, 0.0, u32::MAX)
+            .await
+            .unwrap();
         for meta in p {
             println!("GOT: {meta:?}");
         }

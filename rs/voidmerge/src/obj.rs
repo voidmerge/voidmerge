@@ -178,10 +178,8 @@ pub struct ObjWrap {
 
 impl ObjWrap {
     /// Constructor.
-    pub async fn new(obj: DynObj) -> Result<Self> {
-        let this = Self { inner: obj };
-
-        Ok(this)
+    pub fn new(obj: DynObj) -> Self {
+        Self { inner: obj }
     }
 }
 
@@ -339,9 +337,7 @@ mod test {
 
     #[tokio::test]
     async fn obj_wrap() {
-        let o = ObjWrap::new(obj_file::ObjFile::create(None).await.unwrap())
-            .await
-            .unwrap();
+        let o = obj_file::ObjFile::create(None).await.unwrap();
 
         let ctx: Arc<str> = "AAAA".into();
 

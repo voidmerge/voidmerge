@@ -1,11 +1,26 @@
 const CTX: string = "AAAA";
 const STORE: { [meta: string]: Uint8Array } = {};
+const MSG: { [meta: string]: boolean } = {};
 
 export function checkTestSetup() {
   if (!("VM" in globalThis)) {
     globalThis.VM = {
       ctx(): string {
         return CTX;
+      },
+      async msgNew(): Promise<{ msgId: string }> {
+        const msgId = Math.random().toString();
+        MSG[msgId] = true;
+        return { msgId };
+      },
+      async msgList(): Promise<{ msgIdList: string[] }> {
+        return { msgIdList: Object.keys(MSG) };
+      },
+      async msgSend(input: { msgId: string; msg: Uint8Array }): Promise<void> {
+        if (input.msgId in MSG) {
+          return;
+        }
+        throw new Error("invalid msgId");
       },
       async objPut(input: {
         meta: string;

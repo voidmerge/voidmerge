@@ -103,8 +103,7 @@ impl CtxConfig {
 
 /// A server manages multiple contexts.
 pub struct Server {
-    obj: obj::ObjWrap,
-    js: js::DynJsExec,
+    runtime: RuntimeHandle,
     sys_setup: Mutex<SysSetup>,
     ctx_setup: Mutex<HashMap<Arc<str>, (CtxSetup, CtxConfig)>>,
     ctx_map: Mutex<HashMap<Arc<str>, Arc<crate::ctx::Ctx>>>,
@@ -112,16 +111,13 @@ pub struct Server {
 
 impl Server {
     /// Construct a new server.
-    pub async fn new(obj: obj::DynObj, js: js::DynJsExec) -> Result<Self> {
-        let obj = obj::ObjWrap::new(obj).await?;
+    pub async fn new(runtime: RuntimeHandle) -> Result<Self> {
+        let sys_setup = runtime.runtime().obj()?.get_sys_setup().await?;
 
-        let sys_setup = obj.get_sys_setup().await?;
-
-        let ctx_setup = obj.list_ctx_all().await?;
+        let ctx_setup = runtime.runtime().obj()?.list_ctx_all().await?;
 
         let this = Self {
-            obj,
-            js,
+            runtime,
             sys_setup: Mutex::new(sys_setup),
             ctx_setup: Mutex::new(ctx_setup.clone()),
             ctx_map: Mutex::new(HashMap::new()),
@@ -140,11 +136,14 @@ impl Server {
         setup: CtxSetup,
         config: CtxConfig,
     ) -> Result<()> {
-        let obj = self.obj.clone();
-        let js = self.js.clone();
         self.ctx_map.lock().unwrap().insert(
             ctx.clone(),
-            Arc::new(crate::ctx::Ctx::new(ctx, setup, config, obj, js)?),
+            Arc::new(crate::ctx::Ctx::new(
+                ctx,
+                setup,
+                config,
+                self.runtime.runtime(),
+            )?),
         );
         Ok(())
     }
@@ -199,7 +198,11 @@ impl Server {
         }
         let mut sys_setup = self.get_sys_setup();
         sys_setup.sys_admin = sys_admin;
-        self.obj.set_sys_setup(sys_setup.clone()).await?;
+        self.runtime
+            .runtime()
+            .obj()?
+            .set_sys_setup(sys_setup.clone())
+            .await?;
         *self.sys_setup.lock().unwrap() = sys_setup;
         Ok(())
     }
@@ -219,7 +222,11 @@ impl Server {
 
         setup.check()?;
 
-        self.obj.set_ctx_setup(setup.clone()).await?;
+        self.runtime
+            .runtime()
+            .obj()?
+            .set_ctx_setup(setup.clone())
+            .await?;
 
         let (ctx, (ctx_setup, ctx_config)) = {
             let ctx = setup.ctx.clone();
@@ -244,7 +251,11 @@ impl Server {
 
         config.check()?;
 
-        self.obj.set_ctx_config(config.clone()).await?;
+        self.runtime
+            .runtime()
+            .obj()?
+            .set_ctx_config(config.clone())
+            .await?;
 
         let (ctx, (ctx_setup, ctx_config)) = {
             let ctx = config.ctx.clone();
@@ -257,6 +268,20 @@ impl Server {
         self.setup_context(ctx, ctx_setup, ctx_config)?;
 
         Ok(())
+    }
+
+    /// Handle a msg listen request.
+    pub async fn msg_listen(
+        &self,
+        ctx: Arc<str>,
+        msg_id: Arc<str>,
+    ) -> Option<crate::msg::DynMsgRecv> {
+        self.runtime
+            .runtime()
+            .msg()
+            .ok()?
+            .get_recv(ctx, msg_id)
+            .await
     }
 
     /// List metadata from the object store.
@@ -273,7 +298,11 @@ impl Server {
         let prefix =
             format!("{}/{}/{prefix}", crate::obj::ObjMeta::SYS_CTX, ctx);
 
-        self.obj.list(&prefix, created_gt, limit).await
+        self.runtime
+            .runtime()
+            .obj()?
+            .list(&prefix, created_gt, limit)
+            .await
     }
 
     /// Get an item from the object store.
@@ -288,7 +317,7 @@ impl Server {
         let meta =
             crate::obj::ObjMeta::new_context(&ctx, &app_path, 0.0, 0.0, 0.0);
 
-        self.obj.get(meta).await
+        self.runtime.runtime().obj()?.get(meta).await
     }
 
     /// Put an item into the object store.
@@ -328,7 +357,11 @@ impl Server {
         };
         c.obj_check_req(meta.clone(), data.clone()).await?;
 
-        self.obj.put(meta.clone(), data).await?;
+        self.runtime
+            .runtime()
+            .obj()?
+            .put(meta.clone(), data)
+            .await?;
 
         Ok(meta)
     }

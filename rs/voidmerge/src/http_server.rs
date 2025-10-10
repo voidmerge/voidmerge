@@ -100,6 +100,10 @@ pub async fn http_server(
             axum::routing::put(route_ctx_config_put),
         )
         .route(
+            "/{ctx}/_vm_/msg-listen/{msg_id}",
+            axum::routing::any(route_msg_listen),
+        )
+        .route(
             "/{ctx}/_vm_/obj-list",
             axum::routing::get(route_ctx_obj_list_all),
         )
@@ -197,6 +201,71 @@ async fn route_ctx_config_put(
         .ctx_config_put(token, payload.to_decode()?)
         .await?;
     Ok("Ok".into_response())
+}
+
+async fn route_msg_listen(
+    ws: axum::extract::ws::WebSocketUpgrade,
+    axum::extract::Path((ctx, msg_id)): axum::extract::Path<(String, String)>,
+    axum::extract::ConnectInfo(_addr): axum::extract::ConnectInfo<
+        std::net::SocketAddr,
+    >,
+    axum::extract::State(state): axum::extract::State<Arc<State>>,
+) -> AxumResult {
+    let mut msg_recv =
+        match state.server.msg_listen(ctx.into(), msg_id.into()).await {
+            Some(msg_recv) => msg_recv,
+            None => {
+                return Err(Error::other("Invalid msgId").into());
+            }
+        };
+
+    Ok(ws.on_upgrade(|ws| async move {
+        use axum::extract::ws::Message::*;
+        use futures::{SinkExt, StreamExt};
+
+        let (low_send, mut low_recv) = ws.split();
+        let low_send = tokio::sync::Mutex::new(low_send);
+
+        tokio::select! {
+            _ = async {
+                while let Some(Ok(msg)) = low_recv.next().await {
+                    match msg {
+                        Ping(b) => {
+                            // auto-respond to pings
+                            if low_send
+                                .lock()
+                                .await
+                                .send(Pong(b))
+                                .await
+                                .is_err()
+                            {
+                                return;
+                            }
+                            continue;
+                        },
+                        Pong(_) => continue,
+                        // close in all other cases
+                        // it is not valid to send data to this websocket
+                        _ => return,
+                    };
+                }
+            } => (),
+            _ = async {
+                while let Some(msg) = msg_recv.recv().await {
+                    let enc = match bytes::Bytes::from_encode(&msg) {
+                        Err(err) => {
+                            tracing::warn!(?err, "msg encode failed");
+                            continue;
+                        }
+                        Ok(enc) => enc,
+                    };
+                    if low_send.lock().await.send(Binary(enc)).await.is_err() {
+                        return;
+                    }
+                }
+            } => (),
+        }
+    }))
 }
 
 fn list_limit_default() -> f64 {

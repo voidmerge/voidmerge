@@ -11,8 +11,6 @@ pub struct Ctx {
     setup: crate::server::CtxSetup,
     #[allow(dead_code)]
     config: crate::server::CtxConfig,
-    obj: crate::obj::ObjWrap,
-    js: crate::js::DynJsExec,
     js_setup: crate::js::JsSetup,
 }
 
@@ -22,10 +20,10 @@ impl Ctx {
         ctx: Arc<str>,
         setup: crate::server::CtxSetup,
         config: crate::server::CtxConfig,
-        obj: crate::obj::ObjWrap,
-        js: crate::js::DynJsExec,
+        runtime: Runtime,
     ) -> Result<Self> {
         let js_setup = crate::js::JsSetup {
+            runtime,
             ctx: ctx.clone(),
             timeout: std::time::Duration::from_secs_f64(setup.timeout_secs),
             heap_size: setup.max_heap_bytes,
@@ -35,8 +33,6 @@ impl Ctx {
             ctx,
             setup,
             config,
-            obj,
-            js,
             js_setup,
         })
     }
@@ -48,10 +44,11 @@ impl Ctx {
         data: bytes::Bytes,
     ) -> Result<()> {
         let res = self
-            .js
+            .js_setup
+            .runtime
+            .js()?
             .exec(
                 self.js_setup.clone(),
-                self.obj.clone(),
                 crate::js::JsRequest::ObjCheckReq { data, meta },
             )
             .await?;
@@ -66,8 +63,10 @@ impl Ctx {
         &self,
         req: crate::js::JsRequest,
     ) -> Result<crate::js::JsResponse> {
-        self.js
-            .exec(self.js_setup.clone(), self.obj.clone(), req)
+        self.js_setup
+            .runtime
+            .js()?
+            .exec(self.js_setup.clone(), req)
             .await
     }
 }

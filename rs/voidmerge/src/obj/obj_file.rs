@@ -27,7 +27,7 @@ impl ObjFile {
     /// Construct a new file-backed object store.
     ///
     /// If root is `None`, a tempdir will be used.
-    pub async fn create(root: Option<std::path::PathBuf>) -> Result<DynObj> {
+    pub async fn create(root: Option<std::path::PathBuf>) -> Result<ObjWrap> {
         let mut tempdir = None;
 
         let root = if let Some(root) = root {
@@ -67,6 +67,8 @@ impl ObjFile {
         out.load().await?;
 
         let out: DynObj = out;
+
+        let out = ObjWrap::new(out);
 
         Ok(out)
     }
