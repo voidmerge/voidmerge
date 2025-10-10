@@ -32,19 +32,15 @@ static BUILT: tokio::sync::OnceCell<HashMap<String, Arc<str>>> =
 async fn get_built(name: &str) -> Arc<str> {
     BUILT
         .get_or_init(|| async {
-            tokio::process::Command::new("npm")
-                .arg("ci")
-                .current_dir("../../")
-                .status()
-                .await
-                .expect("failed to run 'npm ci' command");
-            tokio::process::Command::new("npm")
-                .arg("run")
-                .arg("build")
-                .current_dir("../../")
-                .status()
-                .await
-                .expect("failed to run 'npm ci' command");
+            tokio::task::spawn_blocking(|| {
+                let sh = xshell::Shell::new().unwrap();
+                sh.change_dir("../..");
+                xshell::cmd!(sh, "npm ci").run().unwrap();
+                xshell::cmd!(sh, "npm run build").run().unwrap();
+            })
+            .await
+            .unwrap();
+
             let mut map = HashMap::new();
 
             let mut dir = tokio::fs::read_dir("../../ts/test-integration/dist")

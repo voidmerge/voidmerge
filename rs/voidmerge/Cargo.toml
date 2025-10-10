@@ -35,6 +35,7 @@ zip = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = [ "full" ] }
+xshell = { workspace = true }
 
 [features]
 default = [ "http-server", "cli" ]
