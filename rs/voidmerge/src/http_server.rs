@@ -226,7 +226,36 @@ async fn route_msg_listen(
         let (low_send, mut low_recv) = ws.split();
         let low_send = tokio::sync::Mutex::new(low_send);
 
+        let last_pong = std::sync::Mutex::new(std::time::Instant::now());
+
         tokio::select! {
+            _ = async {
+                let mut last_ping = std::time::Instant::now();
+                loop {
+                    tokio::time::sleep(
+                        std::time::Duration::from_secs(3)
+                    ).await;
+
+                    if last_pong.lock().unwrap().elapsed()
+                        > std::time::Duration::from_secs(10)
+                    {
+                        return;
+                    }
+
+                    if last_ping.elapsed() > std::time::Duration::from_secs(5) {
+                        if low_send
+                            .lock()
+                            .await
+                            .send(Ping(bytes::Bytes::from_static(b"")))
+                            .await
+                            .is_err()
+                        {
+                            return;
+                        }
+                        last_ping = std::time::Instant::now();
+                    }
+                }
+            } => (),
             _ = async {
                 while let Some(Ok(msg)) = low_recv.next().await {
                     match msg {
@@ -243,7 +272,11 @@ async fn route_msg_listen(
                             }
                             continue;
                         },
-                        Pong(_) => continue,
+                        Pong(_) => {
+                            *last_pong.lock().unwrap()
+                                = std::time::Instant::now();
+                            continue;
+                        }
                         // close in all other cases
                         // it is not valid to send data to this websocket
                         _ => return,

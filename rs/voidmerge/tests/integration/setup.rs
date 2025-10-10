@@ -35,8 +35,18 @@ async fn get_built(name: &str) -> Arc<str> {
             tokio::task::spawn_blocking(|| {
                 let sh = xshell::Shell::new().unwrap();
                 sh.change_dir("../..");
-                xshell::cmd!(sh, "npm ci").run().unwrap();
-                xshell::cmd!(sh, "npm run build").run().unwrap();
+
+                #[cfg(not(windows))]
+                {
+                    xshell::cmd!(sh, "npm ci").run().unwrap();
+                    xshell::cmd!(sh, "npm run build").run().unwrap();
+                }
+
+                #[cfg(windows)]
+                {
+                    xshell::cmd!(sh, "npm.cmd ci").run().unwrap();
+                    xshell::cmd!(sh, "npm.cmd run build").run().unwrap();
+                }
             })
             .await
             .unwrap();
