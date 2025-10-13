@@ -1,4 +1,5 @@
 import { spawn, ChildProcess } from "node:child_process";
+import { env } from "node:process";
 
 export class VmNodeTestServer {
   #proc: ChildProcess;
@@ -31,17 +32,22 @@ export class VmNodeTestServer {
 
   private static async priv_spawn(codeFile: string): Promise<VmNodeTestServer> {
     const { proc, port } = (await new Promise((res, rej) => {
-      const proc = spawn("cargo", [
-        "run",
-        "--manifest-path",
-        "rs/voidmerge/Cargo.toml",
-        "--",
+      let pname = "vm";
+      const pargs = [
         "test",
         "--http-addr",
         "127.0.0.1:0",
         "--code-file",
         codeFile,
-      ]);
+      ];
+      if (!env.CI) {
+        pname = "cargo";
+        pargs.unshift("--");
+        pargs.unshift("rs/voidmerge/Cargo.toml");
+        pargs.unshift("--manifest-path");
+        pargs.unshift("run");
+      }
+      const proc = spawn(pname, pargs);
       proc.on("error", rej);
       let allbuf = new Uint8Array(0);
       const timer = setTimeout(() => rej("could not determine port"), 5000);
