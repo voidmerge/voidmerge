@@ -2,24 +2,29 @@
   "name": "@voidmerge/monorepo",
   "private": true,
   "workspaces": [
+    "ts/doc",
+    "ts/test-integration",
     "ts/voidmerge-client",
-    "ts/example1"
+    "ts/voidmerge-code"
   ],
   "devDependencies": {
     "@types/jest": "^30.0.0",
-    "esbuild": "^0.25.9",
-    "jest": "^30.1.1",
-    "mktemp": "^2.0.1",
+    "esbuild": "^0.25.10",
+    "jest": "^30.2.0",
     "prettier": "^3.6.2",
-    "typescript": "^5.9.2"
+    "typedoc": "^0.28.14",
+    "typescript": "^5.9.3"
   },
   "scripts": {
-    "lint": "prettier . --write && prettier . --check",
-    "clean": "tsc --build --clean",
     "build:tsc": "tsc --build",
-    "build:bundle": "esbuild --bundle ts/example1/src/index.ts --minify --sourcemap --outfile=ts/example1/dist/browser.js",
+    "build:bundle:test-integration": "esbuild --bundle ts/test-integration/src/obj-simple.ts --sourcemap --outfile=ts/test-integration/dist/bundle-obj-simple.js && esbuild --bundle ts/test-integration/src/msg-simple.ts --sourcemap --outfile=ts/test-integration/dist/bundle-msg-simple.js",
+    "build:bundle": "npm run build:bundle:test-integration",
     "build": "npm run build:tsc && npm run build:bundle",
+    "clean": "tsc --build --clean",
+    "doc": "typedoc ts/doc/src/index.ts",
+    "doc-open": "npm run doc && xdg-open docs/index.html",
     "jest": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js",
+    "lint": "prettier . --write && prettier . --check",
     "test": "npm run lint && npm run build && npm run jest"
   }
 }

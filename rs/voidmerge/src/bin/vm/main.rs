@@ -1,202 +1,227 @@
-#![allow(clippy::collapsible_if)]
 use std::sync::Arc;
+use voidmerge::*;
 
-const APP_INFO: app_dirs2::AppInfo = app_dirs2::AppInfo {
-    name: "VoidMerge",
-    author: "VoidMerge",
-};
-
-#[derive(Debug, clap::Parser)]
-#[command(version, about)]
-struct Arg {
-    #[command(subcommand)]
-    cmd: Cmd,
-
-    /// Directory for storing runtime data.
-    /// If not specified, a system data directory will be used.
-    #[arg(long, env = "VM_DATA_DIR")]
-    data_dir: Option<std::path::PathBuf>,
+fn help() {
+    println!(include_str!("help.txt"));
 }
 
-impl Arg {
-    async fn exec(
-        self,
-        ready: Option<tokio::sync::oneshot::Sender<String>>,
-    ) -> std::io::Result<()> {
-        let data_dir = match self.data_dir {
-            Some(data_dir) => data_dir,
-            None => app_dirs2::get_app_root(
-                app_dirs2::AppDataType::UserData,
-                &APP_INFO,
-            )
-            .map_err(std::io::Error::other)?,
-        };
-
-        match self.cmd {
-            Cmd::PrintPublicKeys => print_public_keys().await?,
-            Cmd::Health(health_arg) => health(data_dir, health_arg).await?,
-            Cmd::Serve(serve_arg) => serve(data_dir, serve_arg, ready).await,
-            Cmd::Context(context_arg) => {
-                context(data_dir, context_arg, ready).await?
-            }
-            Cmd::Backup(backup_arg) => backup(data_dir, backup_arg).await?,
-            Cmd::Restore(restore_arg) => restore(data_dir, restore_arg).await?,
+fn def_split_env(
+    args: &mut minimist::Minimist,
+    key: &str,
+    env: impl Into<std::ffi::OsString>,
+) {
+    if let Some(val) = std::env::var_os(env.into()) {
+        let r = args.entry(key.into()).or_default();
+        for val in val.to_string_lossy().split(',') {
+            r.push(val.into());
         }
-        Ok(())
     }
 }
 
-#[derive(Debug, clap::Subcommand)]
-enum Cmd {
-    /// Print the public keys used by this node to stderr.
-    PrintPublicKeys,
+fn arg_parse() -> Result<Arg> {
+    let mut args = minimist::Minimist::parse(std::env::args_os().skip(1));
 
-    /// Execute a health check against a server.
-    Health(HealthArg),
+    let mut cmd = args
+        .to_one_str(minimist::Minimist::POS)
+        .unwrap_or_else(|| "help".into());
 
-    /// Run the VoidMerge HTTP server.
-    #[cfg(feature = "http-server")]
-    Serve(ServeArg),
+    if args.as_flag("h") || args.as_flag("help") {
+        cmd = "help".into();
+    }
 
-    /// Configure the specified context.
-    Context(ContextArg),
+    macro_rules! exp {
+        ($a:ident, $t:literal) => {
+            $a.to_one_str($t).ok_or_else(|| {
+                Error::invalid(concat!(
+                    "Argument Error: --",
+                    $t,
+                    " is required"
+                ))
+            })?
+        };
+    }
 
-    /// Backup the specified context as a canonical VoidMerge backup zipfile.
-    Backup(BackupArg),
+    macro_rules! exp_path {
+        ($a:ident, $t:literal) => {
+            $a.as_one_path($t).ok_or_else(|| {
+                Error::invalid(concat!(
+                    "Argument Error: --",
+                    $t,
+                    " is required"
+                ))
+            })?
+        };
+    }
 
-    /// Restore a VoidMerge backup zipfile into a given context..
-    Restore(RestoreArg),
+    match cmd.as_ref() {
+        "help" => Ok(Arg::Help),
+        "serve" => {
+            def_split_env(&mut args, "sys-admin", "VM_SYS_ADMIN_TOKENS");
+            args.entry("sys-admin".into()).or_default();
+            args.set_default_env("http-addr", "VM_HTTP_ADDR");
+            args.set_default("http-addr", "[::]:8080");
+            args.set_default_env("store", "VM_STORE");
+            Ok(Arg::Serve {
+                sys_admin: args
+                    .to_list_str("sys-admin")
+                    .expect("--sys-admin is required")
+                    .map(|s| s.into())
+                    .collect::<Vec<_>>(),
+                http_addr: exp!(args, "http-addr").into(),
+                store: args.as_one_path("store").map(|p| p.to_owned()),
+            })
+        }
+        "test" => {
+            args.set_default_env("http-addr", "VM_HTTP_ADDR");
+            args.set_default("http-addr", "[::]:8080");
+            args.set_default_env("code-file", "VM_CODE");
+            Ok(Arg::Test {
+                http_addr: exp!(args, "http-addr").into(),
+                code_file: exp_path!(args, "code-file").into(),
+            })
+        }
+        "health" => {
+            args.set_default_env("url", "VM_URL");
+            Ok(Arg::Health {
+                url: exp!(args, "url").into(),
+            })
+        }
+        "ctx-setup" => {
+            args.set_default_env("url", "VM_URL");
+            args.set_default_env("token", "VM_TOKEN");
+            args.set_default_env("context", "VM_CTX");
+            args.set_default_env("delete", "VM_DELETE");
+            def_split_env(&mut args, "ctx-admin", "VM_CTX_ADMIN_TOKENS");
+            args.entry("ctx-admin".into()).or_default();
+            args.set_default_env("timeout-secs", "VM_TIMEOUT_SECS");
+            args.set_default("timeout-secs", "10.0");
+            args.set_default_env("max-heap-bytes", "VM_MAX_HEAP_BYTES");
+            args.set_default("max-heap-bytes", "33554432");
+            Ok(Arg::CtxSetup {
+                url: exp!(args, "url").into(),
+                token: exp!(args, "token").into(),
+                context: exp!(args, "context").into(),
+                delete: args.as_flag("delete"),
+                ctx_admin: args
+                    .to_list_str("ctx-admin")
+                    .expect("--sys-admin is required")
+                    .map(|s| s.into())
+                    .collect::<Vec<_>>(),
+                timeout_secs: exp!(args, "timeout-secs")
+                    .parse()
+                    .map_err(Error::other)?,
+                max_heap_bytes: exp!(args, "max-heap-bytes")
+                    .parse()
+                    .map_err(Error::other)?,
+            })
+        }
+        "ctx-config" => {
+            args.set_default_env("url", "VM_URL");
+            args.set_default_env("token", "VM_TOKEN");
+            args.set_default_env("context", "VM_CTX");
+            def_split_env(&mut args, "ctx-admin", "VM_CTX_ADMIN_TOKENS");
+            args.entry("ctx-admin".into()).or_default();
+            args.set_default_env("code-file", "VM_CODE");
+            Ok(Arg::CtxConfig {
+                url: exp!(args, "url").into(),
+                token: exp!(args, "token").into(),
+                context: exp!(args, "context").into(),
+                ctx_admin: args
+                    .to_list_str("ctx-admin")
+                    .expect("--sys-admin is required")
+                    .map(|s| s.into())
+                    .collect::<Vec<_>>(),
+                code_file: exp_path!(args, "code-file").into(),
+            })
+        }
+        "obj-list" => {
+            args.set_default_env("url", "VM_URL");
+            args.set_default_env("token", "VM_TOKEN");
+            args.set_default_env("context", "VM_CTX");
+            args.set_default_env("prefix", "VM_PREFIX");
+            args.set_default("prefix", "");
+            args.set_default_env("created-gt", "VM_CREATED_GT");
+            args.set_default("created-gt", "0.0");
+            args.set_default_env("limit", "VM_LIMIT");
+            args.set_default("limit", "4294967295");
+            Ok(Arg::ObjList {
+                url: exp!(args, "url").into(),
+                token: exp!(args, "token").into(),
+                context: exp!(args, "context").into(),
+                prefix: exp!(args, "prefix").into(),
+                created_gt: exp!(args, "created-gt")
+                    .parse()
+                    .map_err(Error::other)?,
+                limit: exp!(args, "limit").parse().map_err(Error::other)?,
+            })
+        }
+        "obj-get" => {
+            args.set_default_env("url", "VM_URL");
+            args.set_default_env("token", "VM_TOKEN");
+            args.set_default_env("context", "VM_CTX");
+            args.set_default_env("app-path", "VM_APP_PATH");
+            args.set_default("app-path", "");
+            Ok(Arg::ObjGet {
+                url: exp!(args, "url").into(),
+                token: exp!(args, "token").into(),
+                context: exp!(args, "context").into(),
+                app_path: exp!(args, "app-path").into(),
+            })
+        }
+        "obj-put" => {
+            args.set_default_env("url", "VM_URL");
+            args.set_default_env("token", "VM_TOKEN");
+            args.set_default_env("context", "VM_CTX");
+            args.set_default_env("app-path", "VM_APP_PATH");
+            args.set_default("app-path", "");
+            args.set_default_env("create", "VM_CREATE");
+            args.set_default("create", safe_now().to_string());
+            args.set_default_env("expire", "VM_EXPIRE");
+            args.set_default("expire", "0.0");
+            Ok(Arg::ObjPut {
+                url: exp!(args, "url").into(),
+                token: exp!(args, "token").into(),
+                context: exp!(args, "context").into(),
+                app_path: exp!(args, "app-path").into(),
+                create: exp!(args, "create").into(),
+                expire: exp!(args, "expire").into(),
+            })
+        }
+        "obj-backup" => {
+            args.set_default_env("url", "VM_URL");
+            args.set_default_env("token", "VM_TOKEN");
+            args.set_default_env("context", "VM_CTX");
+            args.set_default_env("created-gt", "VM_CREATED_GT");
+            args.set_default("created-gt", "0.0");
+            args.set_default_env("zip-file", "VM_ZIP_FILE");
+            Ok(Arg::ObjBackup {
+                url: exp!(args, "url").into(),
+                token: exp!(args, "token").into(),
+                context: exp!(args, "context").into(),
+                created_gt: exp!(args, "created-gt")
+                    .parse()
+                    .map_err(Error::other)?,
+                zip_file: exp_path!(args, "zip-file").into(),
+            })
+        }
+        "obj-restore" => {
+            args.set_default_env("url", "VM_URL");
+            args.set_default_env("token", "VM_TOKEN");
+            args.set_default_env("context", "VM_CTX");
+            args.set_default_env("zip-file", "VM_ZIP_FILE");
+            Ok(Arg::ObjRestore {
+                url: exp!(args, "url").into(),
+                token: exp!(args, "token").into(),
+                context: exp!(args, "context").into(),
+                zip_file: exp_path!(args, "zip-file").into(),
+            })
+        }
+        unk => Err(Error::other(format!("unrecognised command: {unk}"))),
+    }
 }
 
-#[derive(Debug, clap::Args)]
-struct HealthArg {
-    /// The server url.
-    #[arg(long, env = "VM_URL")]
-    url: String,
-}
-
-#[derive(Debug, clap::Args)]
-struct ServeArg {
-    /// SysAdmin tokens to accept, these will never expire.
-    /// Specify as a comma-separated list.
-    #[arg(long, env = "VM_SYSADMIN_TOKENS", value_delimiter = ',')]
-    sysadmin_tokens: Vec<String>,
-
-    /// Adds a redirect at "/" to "/web/{default_context}/index.html".
-    #[arg(long, env = "VM_DEFAULT_CONTEXT")]
-    default_context: Option<String>,
-
-    /// Http server address to bind.
-    #[arg(long, env = "VM_HTTP_ADDR", default_value = "[::]:8080")]
-    http_addr: String,
-}
-
-#[derive(Debug, clap::Args)]
-struct ContextArg {
-    /// The admin api token to use. If specified, client will not use
-    /// challenge authentication, and instead will always pass this
-    /// api token.
-    #[arg(long, env = "VM_ADMIN")]
-    admin: Option<String>,
-
-    /// The context to configure.
-    #[arg(long, env = "VM_CONTEXT")]
-    context: String,
-
-    /// The server url. Optional only if using --test-server.
-    #[arg(long, env = "VM_URL")]
-    url: Option<String>,
-
-    /// If true, the context will be deleted. Any additionally specified
-    /// context configuration will be ignored.
-    #[arg(long, env = "VM_CONTEXT_DELETE")]
-    delete: bool,
-
-    /// If specified, will modify the ctx_admin tokens associated with this
-    /// context.
-    #[arg(long, env = "VM_CTXADMIN_TOKENS", value_delimiter = ',')]
-    ctx_admin_tokens: Option<Vec<String>>,
-
-    /// Push the given json file as a `sysenv:AAAA` entry, which will be
-    /// available as the env param in logic evaluation.
-    ///
-    /// A string entry in the json can contain the following replacers:
-    ///
-    /// - `{{inc-bin <file>}}` will load the file as a binary entry.
-    ///
-    /// - `{{inc-str <file>}}` will load the file as a text entry.
-    ///
-    /// - `{{b64-bin <data>}}` will translate the inline base64url data
-    ///   as a binary entry.
-    ///
-    /// - `{{b64-str <data>}}` will translate the inline base64url data
-    ///   as a text entry.
-    #[arg(long, env = "VM_ENV_JSON_FILE")]
-    env_json_file: Option<std::path::PathBuf>,
-
-    /// Artificially append this node's pubkey as a ctxadmin env item.
-    #[arg(long, env = "VM_ENV_APPEND_THIS_PUBKEY")]
-    env_append_this_pubkey: bool,
-
-    /// Push the given file contents as a single utf8 syslogic item.
-    #[arg(long, env = "VM_LOGIC_UTF8_SINGLE")]
-    logic_utf8_single: Option<std::path::PathBuf>,
-
-    /// Recursively upload files in this directory as sysweb items
-    /// to be served at `/web/{context}/*` paths.
-    #[arg(long, env = "VM_WEB_ROOT")]
-    web_root: Option<std::path::PathBuf>,
-
-    /// Run a new test server at the configured socket address.
-    /// (E.g. `--test-server 127.0.0.1:0`)
-    #[arg(long, env = "VM_TEST_SERVER")]
-    test_server: Option<String>,
-}
-
-#[derive(Debug, clap::Args)]
-struct BackupArg {
-    /// The admin api token to use. If specified, client will not use
-    /// challenge authentication, and instead will always pass this
-    /// api token.
-    #[arg(long, env = "VM_ADMIN")]
-    admin: Option<String>,
-
-    /// The server url.
-    #[arg(long, env = "VM_URL")]
-    url: String,
-
-    /// The context to back up.
-    #[arg(long, env = "VM_CONTEXT")]
-    context: String,
-
-    /// The filename to write. Defaults to `vm-backup-(ctx)-(time).zip`.
-    #[arg(long, env = "VM_OUTPUT")]
-    output: Option<std::path::PathBuf>,
-}
-
-#[derive(Debug, clap::Args)]
-struct RestoreArg {
-    /// The admin api token to use. If specified, client will not use
-    /// challenge authentication, and instead will always pass this
-    /// api token.
-    #[arg(long, env = "VM_ADMIN")]
-    admin: Option<String>,
-
-    /// The server url.
-    #[arg(long, env = "VM_URL")]
-    url: String,
-
-    /// The context to back up.
-    #[arg(long, env = "VM_CONTEXT")]
-    context: String,
-
-    /// The filename to read.
-    #[arg(long, env = "VM_INPUT")]
-    input: std::path::PathBuf,
-}
-
-#[tokio::main]
-async fn main() -> std::io::Result<()> {
+#[tokio::main(flavor = "multi_thread")]
+async fn main() -> Result<()> {
     tracing::subscriber::set_global_default(
         tracing_subscriber::FmtSubscriber::builder()
             .with_env_filter(
@@ -212,561 +237,413 @@ async fn main() -> std::io::Result<()> {
     )
     .unwrap();
 
-    let arg: Arg = clap::Parser::parse();
+    let arg = match arg_parse() {
+        Ok(arg) => arg,
+        Err(err) => {
+            eprintln!("\n-----\n{err}\n-----");
+            eprintln!("\n`vm --help` for additional info");
+            std::process::exit(1);
+        }
+    };
 
-    arg.exec(None).await
+    arg.exec().await
 }
 
-async fn print_public_keys() -> std::io::Result<()> {
-    let config = voidmerge::config::Config {
-        ..Default::default()
-    };
-    let runtime = voidmerge::runtime::Runtime::new(Arc::new(config)).await?;
-    for pk in runtime.sign().public_keys() {
-        eprintln!("{pk}");
-    }
-    Ok(())
-}
-
-async fn health(
-    data_dir: std::path::PathBuf,
-    health_arg: HealthArg,
-) -> std::io::Result<()> {
-    // don't actually need runtime/sign for this call,
-    // but it's how the client is currently set up.
-    let config = voidmerge::config::Config {
-        data_dir,
-        ..Default::default()
-    };
-    let runtime = voidmerge::runtime::Runtime::new(Arc::new(config)).await?;
-    let client = voidmerge::http_client::HttpClient::new(
-        Default::default(),
-        runtime.sign().clone(),
-    );
-    client.health(&health_arg.url).await
+enum Arg {
+    Help,
+    Serve {
+        sys_admin: Vec<Arc<str>>,
+        http_addr: String,
+        store: Option<std::path::PathBuf>,
+    },
+    Test {
+        http_addr: String,
+        code_file: std::path::PathBuf,
+    },
+    Health {
+        url: String,
+    },
+    CtxSetup {
+        url: String,
+        token: Arc<str>,
+        context: Arc<str>,
+        delete: bool,
+        ctx_admin: Vec<Arc<str>>,
+        timeout_secs: f64,
+        max_heap_bytes: usize,
+    },
+    CtxConfig {
+        url: String,
+        token: Arc<str>,
+        context: Arc<str>,
+        ctx_admin: Vec<Arc<str>>,
+        code_file: std::path::PathBuf,
+    },
+    ObjList {
+        url: String,
+        token: Arc<str>,
+        context: Arc<str>,
+        prefix: Arc<str>,
+        created_gt: f64,
+        limit: u32,
+    },
+    ObjGet {
+        url: String,
+        token: Arc<str>,
+        context: Arc<str>,
+        app_path: Arc<str>,
+    },
+    ObjPut {
+        url: String,
+        token: Arc<str>,
+        context: Arc<str>,
+        app_path: String,
+        create: String,
+        expire: String,
+    },
+    ObjBackup {
+        url: String,
+        token: Arc<str>,
+        context: Arc<str>,
+        created_gt: f64,
+        zip_file: std::path::PathBuf,
+    },
+    ObjRestore {
+        url: String,
+        token: Arc<str>,
+        context: Arc<str>,
+        zip_file: std::path::PathBuf,
+    },
 }
 
 async fn serve(
-    data_dir: std::path::PathBuf,
-    serve_arg: ServeArg,
-    ready: Option<tokio::sync::oneshot::Sender<String>>,
-) {
-    serve_err(data_dir, serve_arg, ready)
-        .await
-        .expect("error running server");
+    s: tokio::sync::oneshot::Sender<std::net::SocketAddr>,
+    sys_admin: Vec<Arc<str>>,
+    http_addr: String,
+    store: Option<std::path::PathBuf>,
+) -> Result<()> {
+    let http_addr: std::net::SocketAddr = http_addr.parse().map_err(|err| {
+        Error::other(err).with_info("failed to parse http server bind address")
+    })?;
+    let runtime = RuntimeHandle::default();
+    runtime.set_obj(obj::obj_file::ObjFile::create(store).await?);
+    runtime.set_js(js::JsExecDefault::create());
+    runtime.set_msg(msg::MsgMem::create());
+
+    let server = server::Server::new(runtime).await?;
+    server.set_sys_admin(sys_admin).await?;
+    http_server::http_server(s, http_addr, server).await
 }
 
-async fn serve_err(
-    data_dir: std::path::PathBuf,
-    serve_arg: ServeArg,
-    ready: Option<tokio::sync::oneshot::Sender<String>>,
-) -> std::io::Result<()> {
-    let default_context = match serve_arg.default_context {
-        Some(c) => Some(c.parse()?),
-        None => None,
-    };
-
-    let config = voidmerge::config::Config {
-        sysadmin_tokens: serve_arg.sysadmin_tokens,
-        default_context,
-        http_addr: serve_arg.http_addr,
-        data_dir,
-        ..Default::default()
-    };
-
-    let runtime = voidmerge::runtime::Runtime::new(Arc::new(config)).await?;
-
-    tracing::debug!(?runtime);
-
-    let server = voidmerge::server::Server::new(runtime).await?;
-    let server = voidmerge::http_server::HttpServer::new(server).await?;
-    let addr = *server.bound_addr();
-
-    tracing::info!(?addr, "listening");
-    eprintln!("#voidmerged#listening:{:?}#", addr);
-
-    if let Some(ready) = ready {
-        let _ = ready.send(format!("http://{addr:?}"));
-    }
-
-    server.wait().await;
-    Ok(())
-}
-
-async fn context(
-    data_dir: std::path::PathBuf,
-    context_arg: ContextArg,
-    ready: Option<tokio::sync::oneshot::Sender<String>>,
-) -> std::io::Result<()> {
-    let config = voidmerge::config::Config {
-        data_dir: data_dir.clone(),
-        ..Default::default()
-    };
-    let runtime = voidmerge::runtime::Runtime::new(Arc::new(config)).await?;
-    tracing::debug!(?runtime);
-
-    let ContextArg {
-        admin,
-        mut url,
-        context,
-        delete,
-        ctx_admin_tokens,
-        env_json_file,
-        env_append_this_pubkey,
-        logic_utf8_single,
-        web_root,
-        test_server,
-    } = context_arg;
-
-    let context: voidmerge::types::Hash = context.parse()?;
-
-    let client = voidmerge::http_client::HttpClient::new(
-        Default::default(),
-        runtime.sign().clone(),
-    );
-    if let Some(admin) = &admin {
-        let admin: voidmerge::types::Hash = admin.parse()?;
-        client.set_api_token(admin);
-    }
-
-    if delete {
-        tracing::info!("deleting context..");
-
-        client
-            .context(
-                &url.expect("must pass in url if using delete"),
-                context.clone(),
-                voidmerge::types::VmContextConfig {
-                    delete: true,
-                    ..Default::default()
-                },
-            )
-            .await?;
-
-        // If deleting, that's all we do
-        return Ok(());
-    }
-
-    let mut test_server_task = None;
-
-    if let Some(test_server) = test_server {
-        let (s, r) = tokio::sync::oneshot::channel();
-        let sysadmin_tokens = if let Some(admin) = &admin {
-            vec![admin.clone()]
-        } else {
-            vec![]
-        };
-        let default_context = Some(context.to_string());
-
-        test_server_task = Some(tokio::task::spawn(async move {
-            serve(
-                data_dir,
-                ServeArg {
-                    sysadmin_tokens,
-                    default_context,
-                    http_addr: test_server,
-                },
-                Some(s),
-            )
-            .await
-        }));
-
-        url = Some(r.await.map_err(|_| {
-            std::io::Error::from(std::io::ErrorKind::BrokenPipe)
-        })?);
-
-        // make sure we can actually connect
-        let mut is_healthy = false;
-        for _ in 0..40 {
-            if client.health(url.as_ref().unwrap()).await.is_ok() {
-                is_healthy = true;
-                break;
+impl Arg {
+    async fn exec(self) -> Result<()> {
+        match self {
+            Self::Help => {
+                help();
+                Ok(())
             }
-        }
-        if !is_healthy {
-            return Err(std::io::Error::other("failed to bind test-server"));
-        }
-    }
-
-    let url = url.expect("either specify a --url or --test-server");
-
-    if let Some(ctx_admin_tokens) = ctx_admin_tokens {
-        let mut tokens = Vec::with_capacity(ctx_admin_tokens.len());
-        for t in ctx_admin_tokens {
-            tokens.push(t.parse()?);
-        }
-
-        tracing::info!("configuring ctx_admin tokens..");
-
-        // configure the ctxadmin tokens
-        client
-            .context(
-                &url,
-                context.clone(),
-                voidmerge::types::VmContextConfig {
-                    ctx_admin_tokens: Some(tokens),
-                    ..Default::default()
-                },
-            )
-            .await?;
-    }
-
-    let ts = std::time::SystemTime::UNIX_EPOCH
-        .elapsed()
-        .unwrap()
-        .as_secs_f64();
-
-    if let Some(env_json_file) = env_json_file {
-        use voidmerge::types::*;
-
-        tracing::info!("pushing sysenv from {env_json_file:?}..");
-        let dir = env_json_file.parent().ok_or_else(|| {
-            std::io::Error::other(
-                "could not get env_json_file containing directory",
-            )
-        })?;
-        let env = tokio::fs::read_to_string(&env_json_file).await?;
-        let env: Value =
-            serde_json::from_str(&env).map_err(std::io::Error::other)?;
-        let env = env.transform(&mut ValueTxFromHuman::new(dir)).await?;
-        let mut env: VmEnv = decode(&encode(&env)?)?;
-        if env_append_this_pubkey {
-            env.private
-                .ctxadmin_pubkeys
-                .push(runtime.sign().public_keys());
-        }
-        let env: Value = decode(&encode(&env)?)?;
-        let env = VmObj {
-            type_: "sysenv".into(),
-            ident: Some((&b"\0\0\0"[..]).into()),
-            deps: None,
-            ttl_s: None,
-            app: Some(env),
-        };
-
-        tracing::info!(?env);
-
-        let bundle = env.sign(runtime.sign())?;
-
-        // inject the env without validation
-        client
-            .context(
-                &url,
-                context.clone(),
-                voidmerge::types::VmContextConfig {
-                    force_insert: vec![bundle.into()],
-                    ..Default::default()
-                },
-            )
-            .await?;
-    }
-
-    if let Some(logic_utf8_single) = logic_utf8_single {
-        tracing::info!("pushing syslogic from {logic_utf8_single:?}..");
-
-        let code = tokio::fs::read_to_string(logic_utf8_single).await?;
-
-        // TODO - add ts to enc logic
-        let app = voidmerge::types::decode(&voidmerge::types::encode(
-            &voidmerge::types::VmLogic::Utf8Single { code: code.into() },
-        )?)?;
-
-        let enc = voidmerge::types::VmObj {
-            type_: "syslogic".into(),
-            ident: Some((&b"\0\0\0"[..]).into()),
-            deps: None,
-            ttl_s: None,
-            app: Some(app),
-        };
-
-        let bundle = enc.sign(runtime.sign())?;
-
-        // inject the logic without validation
-        client
-            .context(
-                &url,
-                context.clone(),
-                voidmerge::types::VmContextConfig {
-                    force_insert: vec![bundle.into()],
-                    ..Default::default()
-                },
-            )
-            .await?;
-    }
-
-    if let Some(web_root) = web_root {
-        let mut files = Vec::new();
-        rec_file(web_root, "/".into(), &mut files).await?;
-
-        for (path, data) in files {
-            let mime = match mime_guess::from_path(&path).first() {
-                Some(mime) => mime.to_string(),
-                None => "application/octet-stream".into(),
-            };
-            let path = path
-                .to_str()
-                .ok_or_else(|| std::io::Error::other("invalid utf8 path"))?;
-            let ident = path.as_bytes().into();
-
-            tracing::info!("pushing sysweb to {path:?} ({ident}, {mime})..");
-
-            let mut app = voidmerge::types::Value::map_new();
-            app.map_insert("ts".into(), ts.into());
-            app.map_insert("data".into(), data.into());
-            app.map_insert("mime".into(), mime.into());
-
-            let enc = voidmerge::types::VmObj {
-                type_: "sysweb".into(),
-                ident: Some(ident),
-                deps: None,
-                ttl_s: None,
-                app: Some(app),
-            };
-
-            let bundle = enc.sign(runtime.sign())?;
-
-            // inject the web file without validation
-            client
-                .context(
-                    &url,
-                    context.clone(),
-                    voidmerge::types::VmContextConfig {
-                        force_insert: vec![bundle.into()],
-                        ..Default::default()
-                    },
-                )
-                .await?;
-        }
-    }
-
-    eprintln!("#voidmerged#context_config_complete#");
-    if let Some(ready) = ready {
-        let _ = ready.send(url);
-    }
-
-    if let Some(test_server_task) = test_server_task {
-        test_server_task.await?;
-    }
-
-    Ok(())
-}
-
-fn rec_file(
-    p: std::path::PathBuf,
-    d: std::path::PathBuf,
-    o: &mut Vec<(std::path::PathBuf, bytes::Bytes)>,
-) -> voidmerge::types::BoxFut<'_, std::io::Result<()>> {
-    Box::pin(async move {
-        let mut read = tokio::fs::read_dir(&p).await?;
-        while let Some(e) = read.next_entry().await? {
-            let file_path = d.join(e.file_name());
-            let t = e.file_type().await?;
-            if t.is_dir() {
-                rec_file(p.join(e.file_name()), file_path, o).await?;
-            } else {
-                let data = tokio::fs::read(e.path()).await?.into();
-                o.push((file_path, data));
+            Self::Serve {
+                sys_admin,
+                http_addr,
+                store,
+            } => {
+                let (s, r) = tokio::sync::oneshot::channel();
+                tokio::task::spawn(async move {
+                    if let Ok(addr) = r.await {
+                        eprintln!("#vm#listening#{addr:?}#");
+                    }
+                });
+                serve(s, sys_admin, http_addr, store).await
             }
-        }
-        Ok(())
-    })
-}
+            Self::Test {
+                http_addr,
+                code_file,
+            } => {
+                let code: Arc<str> =
+                    tokio::fs::read_to_string(code_file).await?.into();
 
-async fn backup(
-    data_dir: std::path::PathBuf,
-    backup_arg: BackupArg,
-) -> std::io::Result<()> {
-    let config = voidmerge::config::Config {
-        data_dir,
-        ..Default::default()
-    };
-    let runtime = voidmerge::runtime::Runtime::new(Arc::new(config)).await?;
-    tracing::debug!(?runtime);
+                let (s, r) = tokio::sync::oneshot::channel();
+                tokio::task::spawn(async move {
+                    // await server start
+                    let addr = match r.await {
+                        Ok(addr) => addr,
+                        Err(err) => {
+                            panic!("failed to start test server: {err:?}")
+                        }
+                    };
 
-    let BackupArg {
-        admin,
-        url,
-        context,
-        output,
-    } = backup_arg;
+                    let url = format!("http://{addr:?}");
 
-    let context: voidmerge::types::Hash = context.parse()?;
+                    // check health
+                    let client = voidmerge::http_client::HttpClient::new(
+                        Default::default(),
+                    );
+                    let mut is_healthy = false;
+                    for _ in 0..10 {
+                        tokio::time::sleep(std::time::Duration::from_millis(
+                            100,
+                        ))
+                        .await;
+                        if client.health(&url).await.is_ok() {
+                            is_healthy = true;
+                            break;
+                        }
+                    }
+                    if !is_healthy {
+                        panic!(
+                            "failed to get healthy response from test server"
+                        );
+                    }
 
-    let client = voidmerge::http_client::HttpClient::new(
-        Default::default(),
-        runtime.sign().clone(),
-    );
-    if let Some(admin) = &admin {
-        let admin: voidmerge::types::Hash = admin.parse()?;
-        client.set_api_token(admin);
-    }
+                    // setup context
+                    if let Err(err) = client
+                        .ctx_setup(
+                            &url,
+                            "test",
+                            crate::server::CtxSetup {
+                                ctx: "test".into(),
+                                delete: false,
+                                ctx_admin: vec!["test".into()],
+                                timeout_secs: 10.0,
+                                max_heap_bytes: 33554432,
+                            },
+                        )
+                        .await
+                    {
+                        panic!("failed to setup test server context: {err:?}");
+                    }
 
-    tracing::info!("Selecting all server shorts...");
+                    // configure context
+                    if let Err(err) = client
+                        .ctx_config(
+                            &url,
+                            "test",
+                            crate::server::CtxConfig {
+                                ctx: "test".into(),
+                                ctx_admin: vec!["test".into()],
+                                code,
+                            },
+                        )
+                        .await
+                    {
+                        panic!("failed to setup test server context: {err:?}");
+                    }
 
-    let all = client
-        .select(
-            &url,
-            context.clone(),
-            voidmerge::types::VmSelect {
-                return_short: Some(true),
-                ..Default::default()
-            },
-        )
-        .await?;
+                    // okay, we're running!
+                    eprintln!("#vm#listening#{addr:?}#");
+                });
+                serve(s, vec!["test".into()], http_addr, None).await
+            }
+            Self::Health { url } => {
+                let client =
+                    voidmerge::http_client::HttpClient::new(Default::default());
+                client.health(&url).await
+            }
+            Self::CtxSetup {
+                url,
+                token,
+                context,
+                delete,
+                ctx_admin,
+                timeout_secs,
+                max_heap_bytes,
+            } => {
+                let ctx_setup = crate::server::CtxSetup {
+                    ctx: context,
+                    delete,
+                    ctx_admin,
+                    timeout_secs,
+                    max_heap_bytes,
+                };
 
-    tracing::info!("Found {} shorts on server.", all.count);
+                let client =
+                    voidmerge::http_client::HttpClient::new(Default::default());
+                client.ctx_setup(&url, &token, ctx_setup).await
+            }
+            Self::CtxConfig {
+                url,
+                token,
+                context,
+                ctx_admin,
+                code_file,
+            } => {
+                let code = tokio::fs::read_to_string(code_file).await?.into();
 
-    let output = output.unwrap_or_else(|| {
-        format!(
-            "vm-backup-{context}-{}.zip",
-            std::time::SystemTime::UNIX_EPOCH
-                .elapsed()
-                .unwrap()
-                .as_millis()
-        )
-        .into()
-    });
+                let ctx_config = crate::server::CtxConfig {
+                    ctx: context,
+                    ctx_admin,
+                    code,
+                };
 
-    let file = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(output)?;
-    let mut file = zip::ZipWriter::new(file);
-
-    for (i, short) in
-        all.results.into_iter().filter_map(|r| r.short).enumerate()
-    {
-        tracing::info!(
-            "Downloading {}/{} content for {short}...",
-            i + 1,
-            all.count
-        );
-
-        let content = client
-            .select(
-                &url,
-                context.clone(),
-                voidmerge::types::VmSelect {
-                    filter_by_shorts: Some(vec![short.clone()]),
-                    return_data: Some(true),
-                    ..Default::default()
-                },
-            )
-            .await?;
-
-        if let Some(content) = content.results.first() {
-            if let Some(content) = &content.data {
-                let type_ = content.type_.clone();
-                let ident = content.canon_ident();
-                let enc = voidmerge::types::encode(&content)?;
-                let len = enc.len();
-
-                file = tokio::task::spawn_blocking(move || {
-                    use std::io::Write;
-                    file.start_file(
-                        format!("{}-{}.vm", type_, ident),
-                        zip::write::SimpleFileOptions::default(),
-                    )?;
-                    file.write_all(&enc)?;
-                    std::io::Result::Ok(file)
-                })
-                .await??;
-
-                tracing::info!(
-                    "Stored {} bytes for {}:{}",
-                    len,
-                    content.type_,
-                    content.canon_ident(),
+                let client =
+                    voidmerge::http_client::HttpClient::new(Default::default());
+                client.ctx_config(&url, &token, ctx_config).await
+            }
+            Self::ObjList {
+                url,
+                token,
+                context,
+                prefix,
+                mut created_gt,
+                mut limit,
+            } => {
+                let client =
+                    voidmerge::http_client::HttpClient::new(Default::default());
+                let mut count = 0;
+                while limit > 1000 {
+                    let next_count = std::cmp::min(1000, limit);
+                    limit -= next_count;
+                    let res = client
+                        .obj_list(
+                            &url, &token, &context, &prefix, created_gt,
+                            next_count,
+                        )
+                        .await?;
+                    if res.is_empty() {
+                        break;
+                    }
+                    for r in res {
+                        let created_secs = r.created_secs();
+                        if created_secs > created_gt {
+                            created_gt = created_secs;
+                        }
+                        count += 1;
+                        println!("{r}");
+                    }
+                }
+                eprintln!("#vm#list-count#{count}#");
+                Ok(())
+            }
+            Self::ObjGet {
+                url,
+                token,
+                context,
+                app_path,
+            } => {
+                let client =
+                    voidmerge::http_client::HttpClient::new(Default::default());
+                let (meta, data) =
+                    client.obj_get(&url, &token, &context, &app_path).await?;
+                eprintln!("#vm#meta#{meta}#");
+                use tokio::io::AsyncWriteExt;
+                tokio::io::stdout().write_all(&data).await?;
+                Ok(())
+            }
+            Self::ObjPut {
+                url,
+                token,
+                context,
+                app_path,
+                create,
+                expire,
+            } => {
+                use tokio::io::AsyncReadExt;
+                let mut data = Vec::new();
+                tokio::io::stdin().read_to_end(&mut data).await?;
+                let meta = crate::obj::ObjMeta(
+                    format!("c/{context}/{app_path}/{create}/{expire}").into(),
                 );
+                let client =
+                    voidmerge::http_client::HttpClient::new(Default::default());
+                let meta =
+                    client.obj_put(&url, &token, meta, data.into()).await?;
+                eprintln!("#vm#meta#{meta}#");
+                Ok(())
+            }
+            Self::ObjBackup {
+                url,
+                token,
+                context,
+                mut created_gt,
+                zip_file,
+            } => {
+                let file = std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(zip_file)?;
+                let mut file = zip::ZipWriter::new(file);
+
+                let client =
+                    voidmerge::http_client::HttpClient::new(Default::default());
+                loop {
+                    let res = client
+                        .obj_list(&url, &token, &context, "", created_gt, 1000)
+                        .await?;
+                    if res.is_empty() {
+                        break;
+                    }
+                    for r in res {
+                        let created_secs = r.created_secs();
+                        if created_secs > created_gt {
+                            created_gt = created_secs;
+                        }
+
+                        let (meta, data) = client
+                            .obj_get(&url, &token, &context, r.app_path())
+                            .await?;
+                        println!("{meta}");
+
+                        let path = meta.app_path().to_string();
+                        #[derive(serde::Serialize)]
+                        struct Item(crate::obj::ObjMeta, bytes::Bytes);
+
+                        use voidmerge::bytes_ext::BytesExt;
+                        let data =
+                            bytes::Bytes::from_encode(&Item(meta, data))?;
+
+                        file = tokio::task::spawn_blocking(move || {
+                            use std::io::Write;
+                            file.start_file(
+                                path,
+                                zip::write::SimpleFileOptions::default(),
+                            )?;
+                            file.write_all(&data)?;
+                            std::io::Result::Ok(file)
+                        })
+                        .await??;
+                    }
+                }
+                eprintln!("#vm#createdGt#{created_gt}#");
+                Ok(())
+            }
+            Self::ObjRestore {
+                url,
+                token,
+                context,
+                zip_file,
+            } => {
+                let file =
+                    std::fs::OpenOptions::new().read(true).open(zip_file)?;
+                let mut file = zip::ZipArchive::new(file)?;
+
+                let client =
+                    voidmerge::http_client::HttpClient::new(Default::default());
+                for idx in 0..file.len() {
+                    let (tmp, meta, data) =
+                        tokio::task::spawn_blocking(move || {
+                            let mut out = Vec::new();
+                            {
+                                let mut read = file.by_index(idx)?;
+                                use std::io::Read;
+                                read.read_to_end(&mut out)?;
+                            }
+                            #[derive(serde::Deserialize)]
+                            struct Item(crate::obj::ObjMeta, bytes::Bytes);
+                            use voidmerge::bytes_ext::BytesExt;
+                            let item: Item =
+                                bytes::Bytes::from(out).to_decode()?;
+                            Result::Ok((file, item.0, item.1))
+                        })
+                        .await??;
+                    println!("{meta}");
+                    file = tmp;
+                    if meta.ctx() != &*context {
+                        return Err(Error::other("context mismatch"));
+                    }
+                    client.obj_put(&url, &token, meta, data).await?;
+                }
+                Ok(())
             }
         }
     }
-
-    Ok(())
 }
-
-async fn restore(
-    data_dir: std::path::PathBuf,
-    restore_arg: RestoreArg,
-) -> std::io::Result<()> {
-    use std::io::Read;
-
-    let config = voidmerge::config::Config {
-        data_dir,
-        ..Default::default()
-    };
-    let runtime = voidmerge::runtime::Runtime::new(Arc::new(config)).await?;
-    tracing::debug!(?runtime);
-
-    let RestoreArg {
-        admin,
-        url,
-        context,
-        input,
-    } = restore_arg;
-
-    let context: voidmerge::types::Hash = context.parse()?;
-
-    let client = voidmerge::http_client::HttpClient::new(
-        Default::default(),
-        runtime.sign().clone(),
-    );
-    if let Some(admin) = &admin {
-        let admin: voidmerge::types::Hash = admin.parse()?;
-        client.set_api_token(admin);
-    }
-
-    let file = std::fs::OpenOptions::new().read(true).open(input)?;
-    let file = zip::ZipArchive::new(file)?;
-
-    async fn read_by_index(
-        mut f: zip::ZipArchive<std::fs::File>,
-        idx: usize,
-    ) -> std::io::Result<(zip::ZipArchive<std::fs::File>, bytes::Bytes)> {
-        tokio::task::spawn_blocking(move || {
-            let mut out = Vec::new();
-            {
-                let mut read = f.by_index(idx)?;
-                tracing::info!(name = ?read.name(), "inserting...");
-                read.read_to_end(&mut out)?;
-            }
-            Ok((f, out.into()))
-        })
-        .await?
-    }
-
-    async fn read_by_name(
-        f: zip::ZipArchive<std::fs::File>,
-        name: &str,
-    ) -> std::io::Result<(zip::ZipArchive<std::fs::File>, Option<bytes::Bytes>)>
-    {
-        if let Some(idx) = f.index_for_name(name) {
-            read_by_index(f, idx).await.map(|(f, b)| (f, Some(b)))
-        } else {
-            Ok((f, None))
-        }
-    }
-
-    let (file, sysenv) = read_by_name(file, "sysenv-AAAA.vm").await?;
-
-    if let Some(sysenv) = sysenv {
-        client.insert(&url, context.clone(), sysenv).await?;
-    }
-
-    let (mut file, syslogic) = read_by_name(file, "syslogic-AAAA.vm").await?;
-
-    if let Some(syslogic) = syslogic {
-        client.insert(&url, context.clone(), syslogic).await?;
-    }
-
-    for i in 0..file.len() {
-        let (tmp, data) = read_by_index(file, i).await?;
-        file = tmp;
-        client.insert(&url, context.clone(), data).await?;
-    }
-
-    Ok(())
-}
-
-#[cfg(test)]
-mod test;
