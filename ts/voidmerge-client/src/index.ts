@@ -42,12 +42,12 @@ async function put(
   putUrl.pathname = path;
 
   const res = await fetch(putUrl, {
-    body,
+    body: body.slice().buffer,
     headers: {
       Authorization: `Bearer ${token}`,
     },
     method: "PUT",
-  } as RequestInit);
+  });
 
   return await handle(res);
 }
@@ -57,6 +57,62 @@ async function put(
  */
 export async function health(url: URL | string) {
   await get(url, "");
+}
+
+/**
+ * Execute a "RequestFn" call on a VoidMerge server.
+ */
+export async function fnCall(input: {
+  url: URL | string;
+  ctx: string;
+  path: string;
+  headers?: { [k: string]: string };
+  body?: Uint8Array;
+}): Promise<{
+  status: number;
+  body: Uint8Array;
+  headers: { [k: string]: string };
+}> {
+  const { url, ctx, path, headers, body } = input;
+
+  const fnUrl = new URL(url);
+  fnUrl.pathname = `${ctx}/${path}`;
+
+  const opts: RequestInit = {
+    method: "GET",
+  };
+
+  if (body instanceof Uint8Array) {
+    opts.method = "PUT";
+    opts.body = body.slice().buffer;
+  }
+
+  if (headers) {
+    opts.headers = headers;
+  }
+
+  const res = await fetch(fnUrl, opts);
+
+  if (res.status >= 400) {
+    const msg = await res.text();
+    throw new Error(`error(${res.status}): ${msg}`);
+  }
+
+  const out: {
+    status: number;
+    body: Uint8Array;
+    headers: { [k: string]: string };
+  } = {
+    status: res.status,
+    headers: {},
+    body: new Uint8Array(await res.arrayBuffer()),
+  };
+
+  for (const [k, v] of res.headers) {
+    out.headers[k] = v;
+  }
+
+  return out;
 }
 
 /**
@@ -75,29 +131,9 @@ export interface MessageApp {
 }
 
 /**
- * A VoidMerge peer message.
- */
-export interface MessagePeer {
-  /**
-   * Message type.
-   */
-  type: "peer";
-
-  /**
-   * The msgId of the remote peer.
-   */
-  msgId: string;
-
-  /**
-   * Message payload.
-   */
-  msg: Uint8Array;
-}
-
-/**
  * A VoidMerge message.
  */
-export type Message = MessageApp | MessagePeer;
+export type Message = MessageApp;
 
 /**
  * A VoidMerge listening websocket connection
@@ -117,37 +153,50 @@ export class MsgListener {
     ctx: string;
     msgId: string;
     handler: (input: { err?: Error; msg?: Message }) => void;
-  }) {
-    const { url, ctx, msgId, handler } = input;
-    const listenUrl = new URL(url);
-    listenUrl.pathname = `${ctx}/_vm_/msg-listen/${msgId}`;
-    const ws = new WebSocket(url);
-    ws.binaryType = "arraybuffer";
+  }): Promise<MsgListener> {
     return await new Promise((res, rej) => {
-      const timer = setTimeout(() => rej("timeout opening websocket"));
+      const { url, ctx, msgId, handler } = input;
+
+      const listenUrl = new URL(url);
+      listenUrl.pathname = `${ctx}/_vm_/msg-listen/${msgId}`;
+
+      const ws = new WebSocket(listenUrl);
+      ws.binaryType = "arraybuffer";
+
+      const timer = setTimeout(() => {
+        clearTimeout(timer);
+        rej("timeout opening websocket");
+      }, 10000);
+
       ws.onopen = () => {
         clearTimeout(timer);
         res(new MsgListener(ws));
       };
+
       ws.onclose = (evt: any) => {
         clearTimeout(timer);
         const reason = evt.reason || evt.toString();
         handler({ err: new Error(`closed: ${reason}`) });
       };
+
       ws.onerror = (err: any) => {
         clearTimeout(timer);
         err = err.message || err.type || err.toString();
         rej(new Error(`ws connect error: ${err}`));
         handler({ err: new Error(err) });
       };
+
       ws.onmessage = (evt: any) => {
         if (!evt || typeof evt !== "object") {
           return;
         }
+
         if (!evt.data) {
           return;
         }
+
         let buffer: Uint8Array = new Uint8Array(0);
+
         if (evt.data instanceof Uint8Array) {
           buffer = evt.data;
         } else if (evt.data instanceof ArrayBuffer) {
@@ -155,25 +204,18 @@ export class MsgListener {
         } else {
           return;
         }
+
         const raw = unpack(buffer);
+
         if (!raw || typeof raw !== "object" || typeof raw.type !== "string") {
           return;
         }
+
         if (raw.type === "app") {
           if (raw.msg instanceof Uint8Array) {
             handler({
               msg: {
                 type: "app",
-                msg: raw.msg,
-              },
-            });
-          }
-        } else if (raw.type === "peer") {
-          if (typeof raw.msgId === "string" && raw.msg instanceof Uint8Array) {
-            handler({
-              msg: {
-                type: "peer",
-                msgId: raw.msgId,
                 msg: raw.msg,
               },
             });

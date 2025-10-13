@@ -6,11 +6,8 @@
   "types": "./dist/index.d.ts",
   "type": "module",
   "scripts": {
-    "doc": "typedoc",
-    "doc-open": "npm run doc && xdg-open docs/index.html",
+    "doc": "npm run doc --include-workspace-root -w",
+    "doc-open": "npm run doc-open --include-workspace-root -w",
     "test": "npm test --include-workspace-root -w"
-  },
-  "devDependencies": {
-    "typedoc": "^0.28.13"
   }
 }

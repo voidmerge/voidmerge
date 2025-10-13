@@ -1,12 +1,12 @@
 import * as VM from "@voidmerge/voidmerge-code";
 
 VM.defineVoidMergeHandler(async (req) => {
-  const reqType = req.type();
+  const reqType = req.type;
 
   if (req instanceof VM.RequestObjCheck) {
-    const data = new TextDecoder().decode(req.data());
+    const data = new TextDecoder().decode(req.data);
     if (data === "hello") {
-      return VM.RequestObjCheck.okResponse();
+      return new VM.ResponseObjCheckOk();
     } else {
       throw new Error(`invalid data: ${data}`);
     }
@@ -15,7 +15,7 @@ VM.defineVoidMergeHandler(async (req) => {
       do: string;
       k: string;
       v: string;
-    } = JSON.parse(new TextDecoder().decode(req.body()));
+    } = JSON.parse(new TextDecoder().decode(req.body));
 
     const res: {
       meta?: string;
@@ -47,7 +47,7 @@ VM.defineVoidMergeHandler(async (req) => {
       res.val = new TextDecoder().decode(data);
     }
 
-    return VM.RequestFn.okResponse(
+    return new VM.ResponseFnOk(
       200,
       new TextEncoder().encode(JSON.stringify(res)),
     );

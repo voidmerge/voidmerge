@@ -31,7 +31,11 @@ export class VmNodeTestServer {
 
   private static async priv_spawn(codeFile: string): Promise<VmNodeTestServer> {
     const { proc, port } = (await new Promise((res, rej) => {
-      const proc = spawn("vm", [
+      const proc = spawn("cargo", [
+        "run",
+        "--manifest-path",
+        "rs/voidmerge/Cargo.toml",
+        "--",
         "test",
         "--http-addr",
         "127.0.0.1:0",

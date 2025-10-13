@@ -234,6 +234,9 @@ impl Obj for ObjFile {
             let ctx = meta.ctx();
             safe_str(ctx)?;
             safe_str(meta.app_path())?;
+            if meta.app_path().is_empty() {
+                return Err(Error::other("appPath cannot be empty"));
+            }
 
             let mut hasher = Sha256::new();
             hasher.update(meta.as_bytes());

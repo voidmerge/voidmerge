@@ -46,70 +46,78 @@ declare global {
 /**
  * Incoming request to validate object data for storage.
  * - If this data is not valid, throw an exception.
- * - If this data is valid, return {@link RequestObjCheck.okResponse}.
+ * - If this data is valid, return {@link ResponseObjCheckOk}.
  */
 export class RequestObjCheck {
-  #data: Uint8Array;
-  #meta: ObjMeta;
+  /**
+   * Type marker.
+   */
+  type: "objCheckReq" = "objCheckReq";
+
+  /**
+   * The data to check.
+   */
+  data: Uint8Array;
+
+  /**
+   * Object metadata.
+   */
+  meta: ObjMeta;
 
   /**
    * Construct a new ObjCheck request instance.
    */
   constructor(data: Uint8Array, meta: ObjMeta) {
-    this.#data = data;
-    this.#meta = meta;
-  }
-
-  /**
-   * Instance type marker.
-   */
-  static type(): string {
-    return "objCheckReq";
-  }
-
-  /**
-   * Instance type marker.
-   */
-  type(): string {
-    return "objCheckReq";
-  }
-
-  /**
-   * Generate an ok/success response.
-   */
-  static okResponse(): ResponseObjCheckOk {
-    return RES_OBJ_CHECK_OK;
-  }
-
-  /**
-   * Get the data of the object to be stored.
-   */
-  data(): Uint8Array {
-    return this.#data;
-  }
-
-  /**
-   * Get the meta info of the object to be stored.
-   */
-  meta(): ObjMeta {
-    return this.#meta;
+    this.data = data;
+    this.meta = meta;
+    Object.freeze(this);
   }
 }
 
-const RES_OBJ_CHECK_OK: ResponseObjCheckOk = Object.freeze({
-  type: "objCheckResOk",
-});
+/**
+ * Success response type for an ObjCheck request.
+ */
+export class ResponseObjCheckOk {
+  type: "objCheckResOk" = "objCheckResOk";
+
+  /**
+   * Construct a new instance.
+   */
+  constructor() {
+    Object.freeze(this);
+  }
+}
 
 /**
  * Incoming function handler request.
  * - If the request is malformed or errors, throw an exception.
- * - If the request succeeds, return {@link RequestFn.okResponse}.
+ * - If the request succeeds, return {@link ResponseFnOk}.
  */
 export class RequestFn {
-  #method: string;
-  #path: string;
-  #headers: { [header: string]: string };
-  #body?: Uint8Array;
+  /**
+   * Type marker.
+   */
+  type: "fnReq" = "fnReq";
+
+  /**
+   * The method of the request ("GET", or "PUT").
+   */
+  method: string;
+
+  /**
+   * The path of the request (will not include the context).
+   */
+  path: string;
+
+  /**
+   * Any headers passed in along with the request.
+   */
+  headers: { [header: string]: string };
+
+  /**
+   * If this was a "PUT" request, the passed in body.
+   */
+  body: Uint8Array;
 
   /**
    * Construct a new function request.
@@ -120,76 +128,13 @@ export class RequestFn {
     headers: { [header: string]: string },
     body?: Uint8Array,
   ) {
-    this.#method = method;
-    this.#path = path;
-    this.#body = body;
-    this.#headers = headers;
-  }
-
-  /**
-   * Instance type marker.
-   */
-  static type(): string {
-    return "fnReq";
-  }
-
-  /**
-   * Instance type marker.
-   */
-  type(): string {
-    return "fnReq";
-  }
-
-  /**
-   * Generate an ok/success response.
-   */
-  static okResponse(
-    status: number,
-    body: Uint8Array,
-    headers?: { [header: string]: string },
-  ): ResponseFnOk {
-    return {
-      type: "fnResOk",
-      status,
-      body,
-      headers: headers || {},
-    };
-  }
-
-  /**
-   * Get the method of the request ("GET", or "PUT").
-   */
-  method(): string {
-    return this.#method;
-  }
-
-  /**
-   * Get the path of the request (will not include the context).
-   */
-  path(): string {
-    return this.#path;
-  }
-
-  /**
-   * Get any headers passed in along with the request.
-   */
-  headers(): { [header: string]: string } {
-    return this.#headers;
-  }
-
-  /**
-   * If this was a "PUT" request, get the passed in body.
-   */
-  body(): Uint8Array {
-    if (this.#body) {
-      return this.#body;
-    } else {
-      return EMPTY;
-    }
+    this.method = method;
+    this.path = path;
+    this.headers = headers;
+    this.body = body || new Uint8Array(0);
+    Object.freeze(this);
   }
 }
-
-const EMPTY: Uint8Array = new Uint8Array(0);
 
 /**
  * Union of request types.
@@ -197,20 +142,42 @@ const EMPTY: Uint8Array = new Uint8Array(0);
 export type Request = RequestObjCheck | RequestFn;
 
 /**
- * Success response type for an ObjCheck request.
- */
-export interface ResponseObjCheckOk {
-  type: "objCheckResOk";
-}
-
-/**
  * Success response type for a function request.
  */
-export interface ResponseFnOk {
-  type: "fnResOk";
+export class ResponseFnOk {
+  /**
+   * Type marker.
+   */
+  type: "fnResOk" = "fnResOk";
+
+  /**
+   * Status code (i.e. 200).
+   */
   status: number;
+
+  /**
+   * Response body.
+   */
   body: Uint8Array;
+
+  /**
+   * Response headers.
+   */
   headers: { [header: string]: string };
+
+  /**
+   * Construct a new FnOk response instance.
+   */
+  constructor(
+    status: number,
+    body: Uint8Array,
+    headers?: { [header: string]: string },
+  ) {
+    this.status = status;
+    this.body = body;
+    this.headers = headers || {};
+    Object.freeze(this);
+  }
 }
 
 /**

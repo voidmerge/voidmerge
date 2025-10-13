@@ -4,6 +4,7 @@
 *.gif
 target
 node_modules
+docs
 /ts/doc/dist
 /ts/doc/docs
 /ts/test-integration/dist
