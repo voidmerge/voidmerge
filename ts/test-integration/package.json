@@ -1,0 +1,12 @@
+{
+  "name": "@voidmerge/test-integration",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "npm run build --include-workspace-root -w",
+    "test": "npm test --include-workspace-root -w"
+  },
+  "dependencies": {
+    "@voidmerge/voidmerge-code": "^0.0.4"
+  }
+}

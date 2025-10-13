@@ -1,8 +1,7 @@
 //! VoidMerge http client.
 
 use crate::*;
-use std::collections::HashMap;
-use types::*;
+use bytes::Bytes;
 
 /// Configuration for an [HttpClient] instance.
 #[derive(Default)]
@@ -12,104 +11,14 @@ pub struct HttpClientConfig {}
 /// VoidMerge http client.
 pub struct HttpClient {
     client: reqwest::Client,
-    token: Mutex<Option<Hash>>,
-    auth_token: tokio::sync::Semaphore,
-    sign: Arc<MultiSign>,
-    app_auth_data: Mutex<HashMap<Hash, Value>>,
 }
 
 impl HttpClient {
     /// Construct a new [HttpClient].
-    pub fn new(config: HttpClientConfig, sign: Arc<MultiSign>) -> Self {
+    pub fn new(config: HttpClientConfig) -> Self {
         let _config = config;
         Self {
             client: reqwest::Client::new(),
-            token: Default::default(),
-            auth_token: tokio::sync::Semaphore::new(1),
-            sign,
-            app_auth_data: Default::default(),
-        }
-    }
-
-    /// Set an explicit api token to use.
-    pub fn set_api_token(&self, token: Hash) {
-        *self.token.lock().unwrap() = Some(token);
-    }
-
-    /// Set any app-specific authentication data.
-    pub fn set_app_auth_data(&self, ctx: Hash, app: Value) {
-        self.app_auth_data.lock().unwrap().insert(ctx, app);
-    }
-
-    async fn get_auth_token(&self, mut url: reqwest::Url) -> Result<()> {
-        // just a guard so we only do this once at a time
-        let _g = self.auth_token.acquire().await.unwrap();
-        url.set_path("/auth-chal-req");
-        let req = self
-            .client
-            .get(url.clone())
-            .send()
-            .await
-            .map_err(std::io::Error::other)?;
-        if req.error_for_status_ref().is_err() {
-            return Err(std::io::Error::other(
-                req.text().await.map_err(std::io::Error::other)?,
-            ));
-        }
-        let req = req.bytes().await.map_err(std::io::Error::other)?;
-        let req: AuthChalReq = decode(&req)?;
-
-        let res = AuthChalRes {
-            nonce_sig: self.sign.sign(&req.nonce),
-            context_access: self
-                .app_auth_data
-                .lock()
-                .unwrap()
-                .iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect(),
-        };
-
-        let token = format!("Bearer {}", &req.token.to_string());
-        url.set_path("/auth-chal-res");
-        let res = self
-            .client
-            .put(url)
-            .header("Authorization", token)
-            .body(encode(&res)?)
-            .send()
-            .await
-            .map_err(std::io::Error::other)?;
-        if res.error_for_status_ref().is_err() {
-            return Err(std::io::Error::other(
-                res.text().await.map_err(std::io::Error::other)?,
-            ));
-        }
-
-        self.set_api_token(req.token);
-
-        Ok(())
-    }
-
-    async fn retry_auth<'a, 'b: 'a, 'c: 'a + 'b, R, F, C>(
-        &'a self,
-        url: reqwest::Url,
-        c: C,
-    ) -> Result<R>
-    where
-        F: std::future::Future<Output = Result<R>> + 'c + Send,
-        C: Fn() -> F + 'b + Send,
-    {
-        if self.token.lock().unwrap().is_none() {
-            self.get_auth_token(url.clone()).await?;
-        }
-        match c().await {
-            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
-                self.get_auth_token(url).await?;
-                c().await
-            }
-            Err(e) => Err(e),
-            Ok(r) => Ok(r),
         }
     }
 
@@ -117,7 +26,7 @@ impl HttpClient {
     pub async fn health(&self, url: &str) -> Result<()> {
         let mut url: reqwest::Url =
             url.parse().map_err(std::io::Error::other)?;
-        url.set_path("health");
+        url.set_path("");
         let res = self
             .client
             .get(url)
@@ -132,116 +41,170 @@ impl HttpClient {
         Ok(())
     }
 
-    /// Execute a context configuration command.
-    pub async fn context(
+    /// Setup a context on a VoidMerge server.
+    pub async fn ctx_setup(
         &self,
         url: &str,
-        ctx: Hash,
-        config: VmContextConfig,
-    ) -> Result<()> {
-        let data = encode(&config)?;
-        let mut url: reqwest::Url =
-            url.parse().map_err(std::io::Error::other)?;
-        url.set_path(&format!("context/{ctx}"));
-        self.retry_auth(url.clone(), move || {
-            let url = url.clone();
-            let data = data.clone();
-            async move {
-                let token = format!(
-                    "Bearer {}",
-                    &self.token.lock().unwrap().clone().unwrap().to_string()
-                );
-                let res = self
-                    .client
-                    .put(url)
-                    .header("Authorization", token)
-                    .body(data)
-                    .send()
-                    .await
-                    .map_err(std::io::Error::other)?;
-                if res.error_for_status_ref().is_err() {
-                    return Err(std::io::Error::other(
-                        res.text().await.map_err(std::io::Error::other)?,
-                    ));
-                }
-                Ok(())
-            }
-        })
-        .await
-    }
-
-    /// Put data to a running VoidMerge server.
-    pub async fn insert(
-        &self,
-        url: &str,
-        ctx: Hash,
-        data: Bytes,
+        token: &str,
+        ctx_setup: crate::server::CtxSetup,
     ) -> Result<()> {
         let mut url: reqwest::Url =
             url.parse().map_err(std::io::Error::other)?;
-        url.set_path(&format!("insert/{ctx}"));
-        self.retry_auth(url.clone(), move || {
-            let url = url.clone();
-            let data = data.clone();
-            async move {
-                let token = format!(
-                    "Bearer {}",
-                    &self.token.lock().unwrap().clone().unwrap().to_string()
-                );
-                let res = self
-                    .client
-                    .put(url)
-                    .header("Authorization", token)
-                    .body(data)
-                    .send()
-                    .await
-                    .map_err(std::io::Error::other)?;
-                if res.error_for_status_ref().is_err() {
-                    return Err(std::io::Error::other(
-                        res.text().await.map_err(std::io::Error::other)?,
-                    ));
-                }
-                Ok(())
-            }
-        })
-        .await
+        url.set_path("ctx-setup");
+        let token = format!("Bearer {}", &token);
+        let res = self
+            .client
+            .put(url)
+            .header("Authorization", token)
+            .body(Bytes::from_encode(&ctx_setup)?)
+            .send()
+            .await
+            .map_err(std::io::Error::other)?;
+        if res.error_for_status_ref().is_err() {
+            return Err(std::io::Error::other(
+                res.text().await.map_err(std::io::Error::other)?,
+            ));
+        }
+        Ok(())
     }
 
-    /// Select data from a running VoidMerge server.
-    pub async fn select(
+    /// Configure a context on a VoidMerge server.
+    pub async fn ctx_config(
         &self,
         url: &str,
-        ctx: Hash,
-        select: VmSelect,
-    ) -> Result<VmSelectResponse> {
+        token: &str,
+        ctx_config: crate::server::CtxConfig,
+    ) -> Result<()> {
         let mut url: reqwest::Url =
             url.parse().map_err(std::io::Error::other)?;
-        url.set_path(&format!("select/{ctx}"));
-        self.retry_auth(url.clone(), move || {
-            let url = url.clone();
-            let select = select.clone();
-            async move {
-                let token = format!(
-                    "Bearer {}",
-                    &self.token.lock().unwrap().clone().unwrap().to_string()
-                );
-                let res = self
-                    .client
-                    .put(url)
-                    .header("Authorization", token)
-                    .body(encode(&select)?)
-                    .send()
-                    .await
-                    .map_err(std::io::Error::other)?;
-                if res.error_for_status_ref().is_err() {
-                    return Err(std::io::Error::other(
-                        res.text().await.map_err(std::io::Error::other)?,
-                    ));
-                }
-                let res = res.bytes().await.map_err(std::io::Error::other)?;
-                decode(&res)
-            }
-        })
-        .await
+        url.set_path(&format!("{}/_vm_/config", &ctx_config.ctx));
+        let token = format!("Bearer {}", &token);
+        let res = self
+            .client
+            .put(url)
+            .header("Authorization", token)
+            .body(Bytes::from_encode(&ctx_config)?)
+            .send()
+            .await
+            .map_err(std::io::Error::other)?;
+        if res.error_for_status_ref().is_err() {
+            return Err(std::io::Error::other(
+                res.text().await.map_err(std::io::Error::other)?,
+            ));
+        }
+        Ok(())
+    }
+
+    /// Call the admin obj-list api on a VoidMerge server.
+    pub async fn obj_list(
+        &self,
+        url: &str,
+        ctx: &str,
+        token: &str,
+        app_path_prefix: &str,
+        created_gt: f64,
+        limit: u32,
+    ) -> Result<Vec<crate::obj::ObjMeta>> {
+        safe_str(ctx)?;
+        safe_str(app_path_prefix)?;
+        let mut url: reqwest::Url =
+            url.parse().map_err(std::io::Error::other)?;
+        url.set_path(&format!("{ctx}/_vm_/obj-list/{app_path_prefix}"));
+        url.query_pairs_mut()
+            .clear()
+            .append_pair("created-gt", &created_gt.to_string())
+            .append_pair("limit", &limit.to_string());
+        let token = format!("Bearer {}", &token);
+        let res = self
+            .client
+            .get(url)
+            .header("Authorization", token)
+            .send()
+            .await
+            .map_err(std::io::Error::other)?;
+        if res.error_for_status_ref().is_err() {
+            return Err(std::io::Error::other(
+                res.text().await.map_err(std::io::Error::other)?,
+            ));
+        }
+        let res = res.bytes().await.map_err(std::io::Error::other)?;
+        #[derive(serde::Deserialize)]
+        struct R {
+            #[serde(rename = "metaList")]
+            meta_list: Vec<crate::obj::ObjMeta>,
+        }
+        let res: R = res.to_decode()?;
+        Ok(res.meta_list)
+    }
+
+    /// Call the admin obj-get api on a VoidMerge server.
+    pub async fn obj_get(
+        &self,
+        url: &str,
+        ctx: &str,
+        token: &str,
+        app_path: &str,
+    ) -> Result<(crate::obj::ObjMeta, bytes::Bytes)> {
+        safe_str(ctx)?;
+        safe_str(app_path)?;
+        let mut url: reqwest::Url =
+            url.parse().map_err(std::io::Error::other)?;
+        url.set_path(&format!("{ctx}/_vm_/obj-get/{app_path}"));
+        let token = format!("Bearer {}", &token);
+        let res = self
+            .client
+            .get(url)
+            .header("Authorization", token)
+            .send()
+            .await
+            .map_err(std::io::Error::other)?;
+        if res.error_for_status_ref().is_err() {
+            return Err(std::io::Error::other(
+                res.text().await.map_err(std::io::Error::other)?,
+            ));
+        }
+        let res = res.bytes().await.map_err(std::io::Error::other)?;
+        #[derive(serde::Deserialize)]
+        struct R {
+            meta: crate::obj::ObjMeta,
+            data: bytes::Bytes,
+        }
+        let res: R = res.to_decode()?;
+        Ok((res.meta, res.data))
+    }
+
+    /// Call the admin obj-put api on a VoidMerge server.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn obj_put(
+        &self,
+        url: &str,
+        token: &str,
+        meta: crate::obj::ObjMeta,
+        data: bytes::Bytes,
+    ) -> Result<crate::obj::ObjMeta> {
+        let mut url: reqwest::Url =
+            url.parse().map_err(std::io::Error::other)?;
+        let ctx = meta.ctx();
+        let mut iter = meta.splitn(3, '/');
+        iter.next();
+        iter.next();
+        let rest = iter.next().unwrap_or("");
+        url.set_path(&format!("{ctx}/_vm_/obj-put/{rest}"));
+        let token = format!("Bearer {}", &token);
+        let res = self
+            .client
+            .put(url)
+            .header("Authorization", token)
+            .body(data)
+            .send()
+            .await
+            .map_err(std::io::Error::other)?;
+        if res.error_for_status_ref().is_err() {
+            return Err(std::io::Error::other(
+                res.text().await.map_err(std::io::Error::other)?,
+            ));
+        }
+        let res = res.text().await.map_err(std::io::Error::other)?;
+        Ok(crate::obj::ObjMeta(res.into()))
     }
 }

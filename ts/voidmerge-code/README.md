@@ -1,4 +1,4 @@
-# voidmerge
+# voidmerge-code
 
 ![Crates.io License](https://img.shields.io/crates/l/voidmerge)
 ![Crates.io Version](https://img.shields.io/crates/v/voidmerge)
@@ -8,6 +8,6 @@
 
 [VoidMerge Handbook](https://voidmerge.com/book)
 
-This is the web-client library for interacting with a VoidMerge server instance.
+This is the type library for writing VoidMerge service code.
 
 Please see the [Typescript API Docs](https://voidmerge.com/ts).
