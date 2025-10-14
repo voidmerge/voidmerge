@@ -1,4 +1,3 @@
-module.exports = {
-  transform: {},
-  testMatch: ["**/?(*.)+(spec).js"],
-};
+const transform = {};
+const testMatch = ["**/?(*.)+(spec).js"];
+export { transform, testMatch };

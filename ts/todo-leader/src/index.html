@@ -1,0 +1,28 @@
+<!doctype html>
+<html>
+  <head>
+    <link rel="icon" href="favicon.svg" sizes="any" type="image/svg+xml" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      body {
+        font-family: "sans-serif";
+      }
+      .pick-ident {
+        display: inline-block;
+      }
+      .avatar {
+        width: 10vw;
+        height: 10vw;
+      }
+    </style>
+  </head>
+  <body>
+    <script type="text/html" data-template="pick-ident">
+      <div class="pick-ident">
+        <div class="short">{{short}}</div>
+        <img class="avatar" src="svg/{{ident}}" />
+      </div>
+    </script>
+    <script src="index.js"></script>
+  </body>
+</html>

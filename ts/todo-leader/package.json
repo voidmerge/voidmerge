@@ -1,0 +1,17 @@
+{
+  "name": "@voidmerge/todo-leader",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "npm run build --include-workspace-root -w",
+    "test": "npm test --include-workspace-root -w",
+    "start": "npm run build && vm test --code-file dist/bundle-todo-code.js"
+  },
+  "dependencies": {
+    "@voidmerge/voidmerge-client": "^0.0.5",
+    "@voidmerge/voidmerge-code": "^0.0.5"
+  },
+  "devDependencies": {
+    "base64-js": "^1.5.1"
+  }
+}
