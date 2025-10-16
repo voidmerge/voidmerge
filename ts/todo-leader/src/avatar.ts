@@ -52,8 +52,8 @@ const EYES = `<ellipse
 
 const EYE_COL = ["66ff66", "6666ff", "66ffff", "ffff66", "666600"];
 
-export function avatarSvg(ident: Uint8Array): string {
-  const face = FACE.replaceAll("42ff42", SKIN_COL[ident[6] % SKIN_COL.length]);
-  const eyes = EYES.replaceAll("42ff42", EYE_COL[ident[7] % EYE_COL.length]);
+export function avatarSvg(code: Uint8Array): string {
+  const face = FACE.replaceAll("42ff42", SKIN_COL[code[1] % SKIN_COL.length]);
+  const eyes = EYES.replaceAll("42ff42", EYE_COL[code[2] % EYE_COL.length]);
   return `${HEAD}${face}${eyes}${FOOT}`;
 }

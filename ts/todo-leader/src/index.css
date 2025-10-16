@@ -1,0 +1,182 @@
+/* -- beg reset -- */
+* {
+  font-size: inherit;
+  line-height: inherit;
+  margin: 0;
+  padding: 0;
+}
+*,
+:after,
+:before {
+  box-sizing: inherit;
+}
+html {
+  box-sizing: border-box;
+  -webkit-text-size-adjust: 100%;
+}
+:where(h1, h2, h3, h4, h5, h6) {
+  font-weight: 400;
+  overflow-wrap: break-word;
+}
+:where(p) {
+  overflow-wrap: break-word;
+  text-wrap: pretty;
+}
+:where(img, picture, video, canvas) {
+  block-size: auto;
+  display: block;
+  max-inline-size: 100%;
+}
+:where(iframe, object, embed) {
+  display: block;
+  max-inline-size: 100%;
+  position: relative;
+  z-index: 1;
+}
+:where(iframe[src*="vimeo.com"], iframe[src*="youtube.com"]) {
+  aspect-ratio: 16/9;
+  height: auto;
+}
+:where(ul[role="list"], ol[role="list"]) {
+  list-style: none;
+}
+:where(ul:not([role]), ol:not([role])) {
+  padding-inline-start: revert;
+}
+:where(table) {
+  border-collapse: collapse;
+  border-spacing: 0;
+}
+:where(address, cite, dfn, var) {
+  font-style: normal;
+}
+:where(abbr[title]) {
+  text-decoration: underline dotted;
+}
+:where(del) {
+  text-decoration-thickness: 1px;
+}
+:where(ins) {
+  text-decoration: none;
+}
+:where(pre) {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+:where(small) {
+  font-size: smaller;
+}
+:where(sub, sup) {
+  line-height: 0;
+}
+:where(fieldset) {
+  border: 0;
+}
+:where(button, input, select, textarea) {
+  font: inherit;
+}
+:where(button, [type="button"], [type="reset"], [type="submit"]) {
+  background-color: buttonface;
+  border-radius: 0;
+  border: 1px solid #000;
+  color: currentColor;
+}
+:where(
+  [type="email"],
+  [type="number"],
+  [type="password"],
+  [type="search"],
+  [type="tel"],
+  [type="text"],
+  [type="url"],
+  textarea
+) {
+  border: 1px solid currentColor;
+  border-radius: 0;
+}
+:where(select) {
+  color: currentColor;
+}
+::placeholder {
+  color: #595959;
+  opacity: 1;
+}
+::file-selector-button {
+  border: 1px solid #000;
+  border-radius: 0;
+  color: currentColor;
+  font-family: inherit;
+  font-size: inherit;
+}
+:where([type="search"]) {
+  background-color: inherit;
+}
+::file-selector-button,
+[aria-controls],
+[type="button"],
+[type="checkbox"],
+[type="file"],
+[type="radio"],
+[type="reset"],
+[type="submit"],
+button,
+label,
+select {
+  cursor: pointer;
+}
+[aria-busy="true"] {
+  cursor: progress;
+}
+[aria-disabled="true"],
+[disabled] {
+  cursor: not-allowed;
+}
+[readonly] {
+  cursor: text;
+}
+:where(a svg, button svg) {
+  pointer-events: none;
+}
+[hidden] {
+  display: none !important;
+}
+/* -- end reset -- */
+body {
+  font-family: "sans-serif";
+  font-size: 3vmax;
+}
+.widget-page {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-around;
+}
+.widget-emoji {
+  display: flex;
+  cursor: pointer;
+  font-family: "Noto Color Emoji";
+  font-size: 5vw;
+}
+.widget-vert {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-around;
+}
+.widget-horiz {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-around;
+}
+.widget-input {
+  width: 50vw;
+  height: 4vmax;
+  padding: 8px;
+}
+.widget-avatar {
+  width: 12vmax;
+  height: 12vmax;
+}

@@ -2,6 +2,7 @@
 
 import fs from "node:fs/promises";
 import { minify as htmlMinifyLib } from "html-minifier";
+import CleanCss from "clean-css";
 
 function htmlMinify(data) {
   return htmlMinifyLib(data, {
@@ -13,6 +14,10 @@ function htmlMinify(data) {
     minifyJs: true,
     maxLineLength: 120,
   });
+}
+
+function cssMinify(data) {
+  return new CleanCss({}).minify(data).styles;
 }
 
 const assets = {};
@@ -27,6 +32,7 @@ async function addAsset(path, as, minify) {
 
 async function main() {
   await addAsset("ts/todo-leader/src/index.html", "index.html", htmlMinify);
+  await addAsset("ts/todo-leader/src/index.css", "index.css", cssMinify);
   await addAsset("ts/todo-leader/dist/bundle-todo-client.js", "index.js");
   await addAsset("book/theme/favicon.svg", "favicon.svg");
 

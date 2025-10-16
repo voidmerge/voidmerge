@@ -29,6 +29,14 @@ async function handleFn(req: VM.RequestFn): Promise<VM.ResponseFnOk> {
         "content-type": "image/svg+xml",
       },
     );
+  } else if (req.path === "index.css") {
+    return new VM.ResponseFnOk(
+      200,
+      new TextEncoder().encode(assets["index.css"]),
+      {
+        "content-type": "text/css",
+      },
+    );
   } else if (req.path === "index.js") {
     return new VM.ResponseFnOk(
       200,
@@ -37,12 +45,12 @@ async function handleFn(req: VM.RequestFn): Promise<VM.ResponseFnOk> {
         "content-type": "application/javascript",
       },
     );
-  } else if (req.path.startsWith("svg/")) {
-    const ident = b64Dec(req.path.split("/")[1]);
-    if (ident.byteLength < 16) {
-      throw new Error("invalid ident");
+  } else if (req.path.startsWith("avatar/")) {
+    const avatarCode = b64Dec(req.path.split("/")[1]);
+    if (avatarCode.byteLength !== 8) {
+      throw new Error("invalid avatar code");
     }
-    const svg = avatarSvg(ident);
+    const svg = avatarSvg(avatarCode);
     return new VM.ResponseFnOk(200, new TextEncoder().encode(svg), {
       "content-type": "image/svg+xml",
     });

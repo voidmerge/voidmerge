@@ -3,18 +3,26 @@ import { b64Enc, b64Dec } from "./b64.js";
 const A = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
 const D = "23456789";
 
-const STORE_PUB = "TodoLeaderPubKey";
-const STORE_SEC = "TodoLeaderSecKey";
+const STORE = "TodoLeader";
 
 export class Ident {
   #pub: CryptoKey;
   #sec: CryptoKey;
   #ident: string;
   #short: string;
+  #avatarCode: string;
 
-  private constructor(pub: CryptoKey, sec: CryptoKey, ident: Uint8Array) {
+  private constructor(
+    pub: CryptoKey,
+    sec: CryptoKey,
+    ident: Uint8Array,
+    avatarCode: Uint8Array,
+  ) {
     if (ident.byteLength < 16) {
       throw new Error("pub is too short");
+    }
+    if (avatarCode.byteLength !== 8) {
+      throw new Error("invalid avatar code");
     }
 
     const short =
@@ -35,8 +43,7 @@ export class Ident {
     this.#sec = sec;
     this.#ident = b64Enc(ident);
     this.#short = short;
-
-    Object.freeze(this);
+    this.#avatarCode = b64Enc(avatarCode);
   }
 
   static async random(): Promise<Ident> {
@@ -51,18 +58,22 @@ export class Ident {
     const ident = new Uint8Array(
       await crypto.subtle.exportKey("raw", pair.publicKey),
     );
-    return new Ident(pair.publicKey, pair.privateKey, ident);
+    const avatarCode = crypto.getRandomValues(new Uint8Array(8));
+    return new Ident(pair.publicKey, pair.privateKey, ident, avatarCode);
   }
 
   static async load(): Promise<Ident | undefined> {
-    const pub = localStorage.getItem(STORE_PUB);
-    const sec = localStorage.getItem(STORE_SEC);
-    if (!pub || !sec) {
+    const raw = localStorage.getItem(STORE);
+    if (!raw) {
+      return;
+    }
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || typeof parsed.pub !== "object" || typeof parsed.sec !== "object" || typeof parsed.avatar !== "string") {
       return;
     }
     const pubK = await crypto.subtle.importKey(
       "jwk",
-      JSON.parse(pub),
+      parsed.pub,
       {
         name: "ECDSA",
         namedCurve: "P-256",
@@ -72,7 +83,7 @@ export class Ident {
     );
     const secK = await crypto.subtle.importKey(
       "jwk",
-      JSON.parse(sec),
+      parsed.sec,
       {
         name: "ECDSA",
         namedCurve: "P-256",
@@ -81,14 +92,17 @@ export class Ident {
       ["sign"],
     );
     const ident = new Uint8Array(await crypto.subtle.exportKey("raw", pubK));
-    return new Ident(pubK, secK, ident);
+    return new Ident(pubK, secK, ident, b64Dec(parsed.avatar));
   }
 
   async store() {
     const pub = await crypto.subtle.exportKey("jwk", this.#pub);
     const sec = await crypto.subtle.exportKey("jwk", this.#sec);
-    localStorage.setItem(STORE_PUB, JSON.stringify(pub));
-    localStorage.setItem(STORE_SEC, JSON.stringify(sec));
+    localStorage.setItem(STORE, JSON.stringify({
+      pub,
+      sec,
+      avatar: this.#avatarCode,
+    }));
   }
 
   ident(): string {
@@ -99,11 +113,16 @@ export class Ident {
     return this.#short;
   }
 
+  avatarCode(): string {
+    return this.#avatarCode;
+  }
+
   debug(): string {
     const inner = JSON.stringify(
       {
         short: this.#short,
         ident: this.#ident,
+        avatarCode: this.#avatarCode,
       },
       null,
       2,

@@ -11,6 +11,7 @@
   ],
   "devDependencies": {
     "@types/jest": "^30.0.0",
+    "clean-css": "^5.3.3",
     "esbuild": "^0.25.10",
     "html-minifier": "^4.0.0",
     "jest": "^30.2.0",
@@ -19,7 +20,7 @@
     "typescript": "^5.9.3"
   },
   "scripts": {
-    "build:prebundle:todo-leader": "esbuild --bundle ts/todo-leader/src/todo-client.ts --outfile=ts/todo-leader/dist/bundle-todo-client.js",
+    "build:prebundle:todo-leader": "esbuild --bundle ts/todo-leader/src/todo-client.ts --minify --outfile=ts/todo-leader/dist/bundle-todo-client.js",
     "build:prebundle": "npm run build:prebundle:todo-leader",
     "build:tsc": "tsc --build",
     "build:bundle:test-integration": "esbuild --bundle ts/test-integration/src/obj-simple.ts --sourcemap --outfile=ts/test-integration/dist/bundle-obj-simple.js && esbuild --bundle ts/test-integration/src/msg-simple.ts --sourcemap --outfile=ts/test-integration/dist/bundle-msg-simple.js",
