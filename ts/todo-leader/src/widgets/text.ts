@@ -10,6 +10,7 @@ export class WidgetText extends Widget {
     this.#input = document.createElement("input");
     this.#input.type = "text";
     this.#input.className = "widget-input";
+    this.#input.maxLength = 30;
     this.#input.oninput = () => {
       this.#update();
     };
