@@ -47,7 +47,7 @@ async function handleFn(req: VM.RequestFn): Promise<VM.ResponseFnOk> {
     );
   } else if (req.path.startsWith("avatar/")) {
     const avatarCode = b64Dec(req.path.split("/")[1]);
-    if (avatarCode.byteLength !== 8) {
+    if (avatarCode.byteLength !== 16) {
       throw new Error("invalid avatar code");
     }
     const svg = avatarSvg(avatarCode);

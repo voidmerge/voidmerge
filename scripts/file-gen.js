@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { XMLParser, XMLBuilder } from "fast-xml-parser";
 import fs from "node:fs/promises";
 import { minify as htmlMinifyLib } from "html-minifier";
 import CleanCss from "clean-css";
@@ -30,7 +31,47 @@ async function addAsset(path, as, minify) {
   assets[as] = data;
 }
 
+function deleteSodipodi(array) {
+  for (const node of array) {
+    if ("g" in node) {
+      deleteSodipodi(node.g);
+    }
+    if (":@" in node && "@_sodipodi:nodetypes" in node[":@"]) {
+      delete node[":@"]["@_sodipodi:nodetypes"];
+    }
+  }
+}
+
+async function addSvgParts(path) {
+  const data = new TextDecoder().decode(await fs.readFile(path));
+
+  const xml = new XMLParser({
+    ignoreAttributes: false,
+    allowBooleanAttributes: true,
+    preserveOrder: true,
+  });
+
+  const bld = new XMLBuilder({
+    ignoreAttributes: false,
+    format: true,
+    preserveOrder: true,
+  });
+
+  const parsed = (await xml.parse(data))[1].svg;
+
+  for (const node of parsed) {
+    if ("g" in node && ":@" in node && "@_inkscape:label" in node[":@"]) {
+      deleteSodipodi(node.g);
+      const label = node[":@"]["@_inkscape:label"];
+      const render = bld.build(node.g);
+      assets[`avatar-${label}.svg-part`] = render;
+    }
+  }
+}
+
 async function main() {
+  await addSvgParts("ts/todo-leader/src/todo-leader.svg");
+
   await addAsset("ts/todo-leader/src/index.html", "index.html", htmlMinify);
   await addAsset("ts/todo-leader/src/index.css", "index.css", cssMinify);
   await addAsset("ts/todo-leader/dist/bundle-todo-client.js", "index.js");

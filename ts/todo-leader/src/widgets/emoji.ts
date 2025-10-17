@@ -3,16 +3,18 @@ import { Widget } from "./widget.js";
 export const Emoji = {
   star: "⭐",
   circleBlack: "⚫",
-  hamburger: "🍔",
-  pencil: "✏️",
   check: "✅",
+  trophy: "🏆",
+  calendar: "📅",
 };
 
 export class WidgetEmoji extends Widget {
+  #state: string;
   #div: HTMLDivElement;
 
   constructor(emoji?: string) {
     super();
+    this.#state = "";
     this.#div = document.createElement("div");
     this.#div.className = "widget-emoji";
     if (emoji) {
@@ -24,7 +26,12 @@ export class WidgetEmoji extends Widget {
     return this.#div;
   }
 
+  get(): string {
+    return this.#state;
+  }
+
   set(emoji: string) {
+    this.#state = emoji;
     while (this.#div.childNodes.length > 0) {
       this.#div.removeChild(this.#div.childNodes[0]);
     }

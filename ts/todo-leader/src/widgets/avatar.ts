@@ -7,6 +7,10 @@ export class WidgetAvatar extends Widget {
     super();
     this.#img = document.createElement("img");
     this.#img.className = "widget-avatar";
+    this.setAvatarCode(avatarCode);
+  }
+
+  setAvatarCode(avatarCode: string) {
     this.#img.src = `avatar/${avatarCode}`;
   }
 

@@ -7,7 +7,7 @@ export class Widget {
     this.getElem().onclick = (evt) => {
       evt.preventDefault();
       cb();
-    }
+    };
   }
 
   remove() {

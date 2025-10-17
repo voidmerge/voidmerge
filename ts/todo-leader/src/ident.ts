@@ -21,7 +21,7 @@ export class Ident {
     if (ident.byteLength < 16) {
       throw new Error("pub is too short");
     }
-    if (avatarCode.byteLength !== 8) {
+    if (avatarCode.byteLength !== 16) {
       throw new Error("invalid avatar code");
     }
 
@@ -58,7 +58,7 @@ export class Ident {
     const ident = new Uint8Array(
       await crypto.subtle.exportKey("raw", pair.publicKey),
     );
-    const avatarCode = crypto.getRandomValues(new Uint8Array(8));
+    const avatarCode = crypto.getRandomValues(new Uint8Array(16));
     return new Ident(pair.publicKey, pair.privateKey, ident, avatarCode);
   }
 
@@ -68,7 +68,13 @@ export class Ident {
       return;
     }
     const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object" || typeof parsed.pub !== "object" || typeof parsed.sec !== "object" || typeof parsed.avatar !== "string") {
+    if (
+      !parsed ||
+      typeof parsed !== "object" ||
+      typeof parsed.pub !== "object" ||
+      typeof parsed.sec !== "object" ||
+      typeof parsed.avatar !== "string"
+    ) {
       return;
     }
     const pubK = await crypto.subtle.importKey(
@@ -98,11 +104,14 @@ export class Ident {
   async store() {
     const pub = await crypto.subtle.exportKey("jwk", this.#pub);
     const sec = await crypto.subtle.exportKey("jwk", this.#sec);
-    localStorage.setItem(STORE, JSON.stringify({
-      pub,
-      sec,
-      avatar: this.#avatarCode,
-    }));
+    localStorage.setItem(
+      STORE,
+      JSON.stringify({
+        pub,
+        sec,
+        avatar: this.#avatarCode,
+      }),
+    );
   }
 
   ident(): string {
@@ -111,6 +120,11 @@ export class Ident {
 
   short(): string {
     return this.#short;
+  }
+
+  randomizeAvatar() {
+    this.#avatarCode = b64Enc(crypto.getRandomValues(new Uint8Array(16)));
+    this.store();
   }
 
   avatarCode(): string {

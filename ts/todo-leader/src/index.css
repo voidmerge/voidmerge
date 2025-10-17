@@ -143,11 +143,32 @@ select {
 /* -- end reset -- */
 body {
   font-family: "sans-serif";
-  font-size: 3vmax;
+  font-size: 3.5vmax;
+  background-color: #333;
+  color: #fcc;
+}
+input[type="text"] {
+  background-color: #333;
+  border: 2px solid #fcc;
+  border-radius: 5px;
+  color: #fcc;
 }
 .widget-page {
   width: 100vw;
   height: 100vh;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-around;
+}
+.widget-frame {
+  background-color: #666;
+  height: 100%;
+  width: 100%;
+  padding: 20px;
+  border: 1vw solid #fcc;
+  border-radius: 1vw;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -155,28 +176,49 @@ body {
 }
 .widget-emoji {
   display: flex;
-  cursor: pointer;
   font-family: "Noto Color Emoji";
-  font-size: 5vw;
+  font-size: 4.5vw;
+  cursor: pointer;
+  filter: drop-shadow(2px 2px 3px rgba(0, 0, 0, 0.7));
+  transform: scale(1);
+  transition: transform 0.1s ease-in-out;
+}
+.widget-emoji:hover {
+  transform: scale(1.2);
 }
 .widget-vert {
+  height: 100%;
+  width: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: space-around;
 }
 .widget-horiz {
+  height: 100%;
+  width: 100%;
   display: flex;
   flex-direction: row;
   align-items: center;
   justify-content: space-around;
 }
 .widget-input {
-  width: 50vw;
-  height: 4vmax;
+  width: 30vw;
+  margin: 0 10px;
+  flex-grow: 1;
   padding: 8px;
 }
+.widget-label {
+  flex-grow: 1;
+}
 .widget-avatar {
-  width: 12vmax;
-  height: 12vmax;
+  width: 10vmax;
+  height: 10vmax;
+  cursor: pointer;
+  filter: drop-shadow(2px 2px 3px rgba(0, 0, 0, 0.7));
+  transform: scale(1);
+  transition: transform 0.1s ease-in-out;
+}
+.widget-avatar:hover {
+  transform: scale(1.2);
 }
