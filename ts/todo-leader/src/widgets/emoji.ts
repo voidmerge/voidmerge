@@ -5,7 +5,7 @@ export const Emoji = {
   circleBlack: "⚫",
   check: "✅",
   trophy: "🏆",
-  calendar: "📅",
+  calendar: "🗓️",
 };
 
 export class WidgetEmoji extends Widget {

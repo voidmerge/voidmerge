@@ -7,9 +7,9 @@ function getPart(name: string, color: number): string {
 }
 
 const NOSES = ["a", "b"];
-const HAIR = ["a", "b"];
-const EYES = ["a", "b"];
-const MOUTH = ["a", "b"];
+const HAIR = ["", "a", "b", "c", "d", "e"];
+const EYES = ["a", "b", "c"];
+const MOUTH = ["a", "b", "c", "d", "e", "f"];
 
 const COLOR = [
   "413a22",
@@ -23,6 +23,8 @@ const COLOR = [
   "66ffff",
   "ffff66",
   "666600",
+  "660000",
+  "660066",
 ];
 
 export function avatarSvg(code: Uint8Array): string {
@@ -30,12 +32,12 @@ export function avatarSvg(code: Uint8Array): string {
   const noseId = NOSES[code[1] % NOSES.length];
   const nose = getPart(`nose-${noseId}`, code[2]);
   const hairId = HAIR[code[3] % HAIR.length];
-  const hair = getPart(`hair-${hairId}`, code[4]);
+  const hair = hairId === "" ? "" : getPart(`hair-${hairId}`, code[4]);
   const eyesId = EYES[code[5] % EYES.length];
   const eyes = getPart(`eyes-${eyesId}`, code[6]);
   const mouthId = MOUTH[code[7] % MOUTH.length];
   const mouth = getPart(`mouth-${mouthId}`, code[8]);
-  return `${HEAD}${face}${nose}${hair}${eyes}${mouth}${FOOT}`;
+  return `${HEAD}${face}${nose}${eyes}${mouth}${hair}${FOOT}`;
 }
 
 // -- let these hoist... since the xml header messes vim up -- //
