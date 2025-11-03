@@ -21,7 +21,10 @@ VM.defineVoidMergeHandler(async (req) => {
       out = `sent: ${msgStr}\n`;
     }
 
-    return new VM.ResponseFnOk(200, new TextEncoder().encode(out));
+    return new VM.ResponseFnOk({
+      status: 200,
+      body: new TextEncoder().encode(out),
+    });
   }
 
   throw new Error(`Invalid request type: ${reqType}`);

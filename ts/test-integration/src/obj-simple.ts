@@ -47,10 +47,10 @@ VM.defineVoidMergeHandler(async (req) => {
       res.val = new TextDecoder().decode(data);
     }
 
-    return new VM.ResponseFnOk(
-      200,
-      new TextEncoder().encode(JSON.stringify(res)),
-    );
+    return new VM.ResponseFnOk({
+      status: 200,
+      body: new TextEncoder().encode(JSON.stringify(res)),
+    });
   }
 
   throw new Error(`Invalid request type: ${reqType}`);

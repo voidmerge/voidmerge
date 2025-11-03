@@ -124,27 +124,26 @@ impl Server {
         };
 
         for (ctx, (setup, config)) in ctx_setup {
-            this.setup_context(ctx, setup, config)?;
+            this.setup_context(ctx, setup, config).await?;
         }
 
         Ok(this)
     }
 
-    fn setup_context(
+    async fn setup_context(
         &self,
         ctx: Arc<str>,
         setup: CtxSetup,
         config: CtxConfig,
     ) -> Result<()> {
-        self.ctx_map.lock().unwrap().insert(
+        let sub = crate::ctx::Ctx::new(
             ctx.clone(),
-            Arc::new(crate::ctx::Ctx::new(
-                ctx,
-                setup,
-                config,
-                self.runtime.runtime(),
-            )?),
-        );
+            setup,
+            config,
+            self.runtime.runtime(),
+        )
+        .await?;
+        self.ctx_map.lock().unwrap().insert(ctx, sub);
         Ok(())
     }
 
@@ -236,7 +235,7 @@ impl Server {
             (ctx, r.clone())
         };
 
-        self.setup_context(ctx, ctx_setup, ctx_config)?;
+        self.setup_context(ctx, ctx_setup, ctx_config).await?;
 
         Ok(())
     }
@@ -265,7 +264,7 @@ impl Server {
             (ctx, r.clone())
         };
 
-        self.setup_context(ctx, ctx_setup, ctx_config)?;
+        self.setup_context(ctx, ctx_setup, ctx_config).await?;
 
         Ok(())
     }

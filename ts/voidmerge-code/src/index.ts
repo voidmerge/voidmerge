@@ -4,6 +4,12 @@ import { ObjMeta } from "./obj-meta.js";
 
 type VmRawReq =
   | {
+      type: "codeConfigReq";
+    }
+  | {
+      type: "cronReq";
+    }
+  | {
       type: "objCheckReq";
       data: Uint8Array;
       meta: string;
@@ -34,6 +40,12 @@ interface GlobalVM {
 declare global {
   var vm: (req: VmRawReq) => Promise<
     | {
+        type: "codeConfigResOk";
+      }
+    | {
+        type: "cronResOk";
+      }
+    | {
         type: "objCheckResOk";
       }
     | {
@@ -41,6 +53,79 @@ declare global {
       }
   >;
   var VM: GlobalVM;
+}
+
+/**
+ * Incoming request for code configuration.
+ * - Respond with {@link ResponseCodeConfigOk}.
+ */
+export class RequestCodeConfig {
+  /**
+   * Type marker.
+   */
+  type: "codeConfigReq" = "codeConfigReq";
+
+  /**
+   * Construct a new request instance.
+   */
+  constructor() {
+    Object.freeze(this);
+  }
+}
+
+/**
+ * Success response type for a codeConfig request.
+ */
+export class ResponseCodeConfigOk {
+  type: "codeConfigResOk" = "codeConfigResOk";
+
+  /**
+   * How often to invoke the cron handler. Note that this
+   * will be invoked on every running node... The code will
+   * need to account for potential parallel invocations in
+   * a cluster setup.
+   */
+  cronIntervalSecs?: number;
+
+  /**
+   * Construct a new instance.
+   */
+  constructor(input: { cronIntervalSecs?: number }) {
+    this.cronIntervalSecs = input.cronIntervalSecs;
+    Object.freeze(this);
+  }
+}
+
+/**
+ * Incoming request for cron execution.
+ * - Respond with {@link ResponseCronOk}.
+ */
+export class RequestCron {
+  /**
+   * Type marker.
+   */
+  type: "cronReq" = "cronReq";
+
+  /**
+   * Construct a new request instance.
+   */
+  constructor() {
+    Object.freeze(this);
+  }
+}
+
+/**
+ * Success response type for a codeConfig request.
+ */
+export class ResponseCronOk {
+  type: "cronResOk" = "cronResOk";
+
+  /**
+   * Construct a new instance.
+   */
+  constructor() {
+    Object.freeze(this);
+  }
 }
 
 /**
@@ -67,9 +152,9 @@ export class RequestObjCheck {
   /**
    * Construct a new ObjCheck request instance.
    */
-  constructor(data: Uint8Array, meta: ObjMeta) {
-    this.data = data;
-    this.meta = meta;
+  constructor(input: { data: Uint8Array; meta: ObjMeta }) {
+    this.data = input.data;
+    this.meta = input.meta;
     Object.freeze(this);
   }
 }
@@ -122,16 +207,16 @@ export class RequestFn {
   /**
    * Construct a new function request.
    */
-  constructor(
-    method: string,
-    path: string,
-    headers: { [header: string]: string },
-    body?: Uint8Array,
-  ) {
-    this.method = method;
-    this.path = path;
-    this.headers = headers;
-    this.body = body || new Uint8Array(0);
+  constructor(input: {
+    method: string;
+    path: string;
+    headers: { [header: string]: string };
+    body?: Uint8Array;
+  }) {
+    this.method = input.method;
+    this.path = input.path;
+    this.headers = input.headers;
+    this.body = input.body || new Uint8Array(0);
     Object.freeze(this);
   }
 }
@@ -139,7 +224,11 @@ export class RequestFn {
 /**
  * Union of request types.
  */
-export type Request = RequestObjCheck | RequestFn;
+export type Request =
+  | RequestCodeConfig
+  | RequestCron
+  | RequestObjCheck
+  | RequestFn;
 
 /**
  * Success response type for a function request.
@@ -168,14 +257,14 @@ export class ResponseFnOk {
   /**
    * Construct a new FnOk response instance.
    */
-  constructor(
-    status: number,
-    body: Uint8Array,
-    headers?: { [header: string]: string },
-  ) {
-    this.status = status;
-    this.body = body;
-    this.headers = headers || {};
+  constructor(input: {
+    status: number;
+    body: Uint8Array;
+    headers?: { [header: string]: string };
+  }) {
+    this.status = input.status;
+    this.body = input.body;
+    this.headers = input.headers || {};
     Object.freeze(this);
   }
 }
@@ -183,7 +272,11 @@ export class ResponseFnOk {
 /**
  * Union of response types.
  */
-export type Response = ResponseObjCheckOk | ResponseFnOk;
+export type Response =
+  | ResponseCodeConfigOk
+  | ResponseCronOk
+  | ResponseObjCheckOk
+  | ResponseFnOk;
 
 /**
  * Function signature for a VoidMerge handler.
@@ -205,13 +298,25 @@ export function defineVoidMergeHandler(handler: VoidMergeHandler) {
   // Define the handler with some translations for typescript type instances.
   globalThis.vm = async (req: VmRawReq) => {
     const type = req.type;
-    if (req.type === "objCheckReq") {
+    if (req.type === "codeConfigReq") {
+      return await handler(new RequestCodeConfig());
+    } else if (req.type === "cronReq") {
+      return await handler(new RequestCron());
+    } else if (req.type === "objCheckReq") {
       return await handler(
-        new RequestObjCheck(req.data, ObjMeta.fromFull(req.meta)),
+        new RequestObjCheck({
+          data: req.data,
+          meta: ObjMeta.fromFull(req.meta),
+        }),
       );
     } else if (req.type === "fnReq") {
       return await handler(
-        new RequestFn(req.method, req.path, req.headers, req.body),
+        new RequestFn({
+          method: req.method,
+          path: req.path,
+          headers: req.headers,
+          body: req.body,
+        }),
       );
     }
     throw new Error(`invalid request type: ${type}`);
