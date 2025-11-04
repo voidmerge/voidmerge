@@ -89,6 +89,14 @@ pub struct CtxConfig {
     /// Javascript code for the context.
     #[serde(rename = "l", default, skip_serializing_if = "p_no")]
     pub code: Arc<str>,
+
+    /// Javascript code env metadata for the context.
+    #[serde(
+        rename = "e",
+        default,
+        skip_serializing_if = "serde_json::Value::is_null"
+    )]
+    pub code_env: Arc<serde_json::Value>,
 }
 
 impl CtxConfig {

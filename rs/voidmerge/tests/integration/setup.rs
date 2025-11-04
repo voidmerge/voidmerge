@@ -114,6 +114,7 @@ impl Test {
                     ctx: ctx.clone(),
                     ctx_admin: vec![admin.clone()],
                     code,
+                    ..Default::default()
                 },
             )
             .await

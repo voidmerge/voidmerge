@@ -37,6 +37,7 @@ impl Ctx {
             timeout: std::time::Duration::from_secs_f64(setup.timeout_secs),
             heap_size: setup.max_heap_bytes,
             code: config.code.clone(),
+            env: config.code_env.clone(),
         };
         let mut this = Self {
             this: Weak::new(),

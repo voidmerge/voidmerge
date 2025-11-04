@@ -75,9 +75,11 @@ fn arg_parse() -> Result<Arg> {
             args.set_default_env("http-addr", "VM_HTTP_ADDR");
             args.set_default("http-addr", "[::]:8080");
             args.set_default_env("code-file", "VM_CODE");
+            args.set_default_env("code-env", "VM_ENV");
             Ok(Arg::Test {
                 http_addr: exp!(args, "http-addr").into(),
                 code_file: exp_path!(args, "code-file").into(),
+                code_env: args.as_one_path("code-env").map(ToOwned::to_owned),
             })
         }
         "health" => {
@@ -122,6 +124,7 @@ fn arg_parse() -> Result<Arg> {
             def_split_env(&mut args, "ctx-admin", "VM_CTX_ADMIN_TOKENS");
             args.entry("ctx-admin".into()).or_default();
             args.set_default_env("code-file", "VM_CODE");
+            args.set_default_env("code-env", "VM_ENV");
             Ok(Arg::CtxConfig {
                 url: exp!(args, "url").into(),
                 token: exp!(args, "token").into(),
@@ -132,6 +135,7 @@ fn arg_parse() -> Result<Arg> {
                     .map(|s| s.into())
                     .collect::<Vec<_>>(),
                 code_file: exp_path!(args, "code-file").into(),
+                code_env: args.as_one_path("code-env").map(ToOwned::to_owned),
             })
         }
         "obj-list" => {
@@ -259,6 +263,7 @@ enum Arg {
     Test {
         http_addr: String,
         code_file: std::path::PathBuf,
+        code_env: Option<std::path::PathBuf>,
     },
     Health {
         url: String,
@@ -278,6 +283,7 @@ enum Arg {
         context: Arc<str>,
         ctx_admin: Vec<Arc<str>>,
         code_file: std::path::PathBuf,
+        code_env: Option<std::path::PathBuf>,
     },
     ObjList {
         url: String,
@@ -358,9 +364,18 @@ impl Arg {
             Self::Test {
                 http_addr,
                 code_file,
+                code_env,
             } => {
                 let code: Arc<str> =
                     tokio::fs::read_to_string(code_file).await?.into();
+                let code_env: serde_json::Value =
+                    if let Some(code_env) = code_env {
+                        serde_json::from_str(
+                            &tokio::fs::read_to_string(code_env).await?,
+                        )?
+                    } else {
+                        serde_json::Value::Null
+                    };
 
                 let (s, r) = tokio::sync::oneshot::channel();
                 tokio::task::spawn(async move {
@@ -422,6 +437,7 @@ impl Arg {
                                 ctx: "test".into(),
                                 ctx_admin: vec!["test".into()],
                                 code,
+                                code_env: code_env.into(),
                             },
                         )
                         .await
@@ -466,13 +482,23 @@ impl Arg {
                 context,
                 ctx_admin,
                 code_file,
+                code_env,
             } => {
                 let code = tokio::fs::read_to_string(code_file).await?.into();
+                let code_env: serde_json::Value =
+                    if let Some(code_env) = code_env {
+                        serde_json::from_str(
+                            &tokio::fs::read_to_string(code_env).await?,
+                        )?
+                    } else {
+                        serde_json::Value::Null
+                    };
 
                 let ctx_config = crate::server::CtxConfig {
                     ctx: context,
                     ctx_admin,
                     code,
+                    code_env: code_env.into(),
                 };
 
                 let client =

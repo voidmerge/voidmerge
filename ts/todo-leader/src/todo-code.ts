@@ -52,6 +52,14 @@ async function handleFn(req: VM.RequestFn): Promise<VM.ResponseFnOk> {
         "content-type": "text/plain",
       },
     });
+  } else if (req.path === "env") {
+    return new VM.ResponseFnOk({
+      status: 200,
+      body: new TextEncoder().encode(JSON.stringify(VM.env())),
+      headers: {
+        "content-type": "application/json",
+      },
+    });
   } else if (req.path.startsWith("league/")) {
     let leagueNum = parseInt(req.path.split("/")[1] || "0") || 0;
     if (leagueNum < 1) {
