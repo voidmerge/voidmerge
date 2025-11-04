@@ -8,6 +8,7 @@
     "start": "npm run build && vm test --code-file dist/bundle-todo-code.js"
   },
   "dependencies": {
+    "@noble/ed25519": "^3.0.0",
     "@voidmerge/voidmerge-client": "^0.0.5",
     "@voidmerge/voidmerge-code": "^0.0.5"
   },

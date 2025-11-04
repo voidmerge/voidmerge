@@ -1,4 +1,5 @@
 import { b64Enc, b64Dec } from "./b64.js";
+import * as ed from "@noble/ed25519";
 
 const A = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
 const D = "23456789";
@@ -6,25 +7,17 @@ const D = "23456789";
 const STORE = "TodoLeader";
 
 export class Ident {
-  #pub: CryptoKey;
-  #sec: CryptoKey;
-  #ident: string;
+  #pk: string;
+  #sk: string;
   #short: string;
   #avatarCode: string;
 
-  private constructor(
-    pub: CryptoKey,
-    sec: CryptoKey,
-    ident: Uint8Array,
-    avatarCode: Uint8Array,
-  ) {
-    if (ident.byteLength < 16) {
-      throw new Error("pub is too short");
-    }
+  private constructor(pk: string, sk: string, avatarCode: Uint8Array) {
     if (avatarCode.byteLength !== 16) {
       throw new Error("invalid avatar code");
     }
 
+    const ident = b64Dec(pk);
     const short =
       A[ident[6] % A.length] +
       A[ident[7] % A.length] +
@@ -39,27 +32,19 @@ export class Ident {
       D[ident[14] % D.length] +
       A[ident[15] % A.length];
 
-    this.#pub = pub;
-    this.#sec = sec;
-    this.#ident = b64Enc(ident);
+    this.#pk = pk;
+    this.#sk = sk;
     this.#short = short;
     this.#avatarCode = b64Enc(avatarCode);
   }
 
   static async random(): Promise<Ident> {
-    const pair = await crypto.subtle.generateKey(
-      {
-        name: "ECDSA",
-        namedCurve: "P-256",
-      },
-      true,
-      ["sign", "verify"],
-    );
-    const ident = new Uint8Array(
-      await crypto.subtle.exportKey("raw", pair.publicKey),
-    );
+    const { secretKey, publicKey } = await ed.keygenAsync();
+    const pk = b64Enc(publicKey);
+    const sk = b64Enc(secretKey);
+
     const avatarCode = crypto.getRandomValues(new Uint8Array(16));
-    return new Ident(pair.publicKey, pair.privateKey, ident, avatarCode);
+    return new Ident(pk, sk, avatarCode);
   }
 
   static async load(): Promise<Ident | undefined> {
@@ -71,51 +56,48 @@ export class Ident {
     if (
       !parsed ||
       typeof parsed !== "object" ||
-      typeof parsed.pub !== "object" ||
-      typeof parsed.sec !== "object" ||
+      typeof parsed.pk !== "string" ||
+      typeof parsed.sk !== "string" ||
       typeof parsed.avatar !== "string"
     ) {
       return;
     }
-    const pubK = await crypto.subtle.importKey(
-      "jwk",
-      parsed.pub,
-      {
-        name: "ECDSA",
-        namedCurve: "P-256",
-      },
-      true,
-      ["verify"],
-    );
-    const secK = await crypto.subtle.importKey(
-      "jwk",
-      parsed.sec,
-      {
-        name: "ECDSA",
-        namedCurve: "P-256",
-      },
-      true,
-      ["sign"],
-    );
-    const ident = new Uint8Array(await crypto.subtle.exportKey("raw", pubK));
-    return new Ident(pubK, secK, ident, b64Dec(parsed.avatar));
+    return new Ident(parsed.pk, parsed.sk, b64Dec(parsed.avatar));
   }
 
   async store() {
-    const pub = await crypto.subtle.exportKey("jwk", this.#pub);
-    const sec = await crypto.subtle.exportKey("jwk", this.#sec);
     localStorage.setItem(
       STORE,
       JSON.stringify({
-        pub,
-        sec,
+        pk: this.#pk,
+        sk: this.#sk,
         avatar: this.#avatarCode,
       }),
     );
   }
 
-  ident(): string {
-    return this.#ident;
+  async sign(input: {
+    league: number;
+    stars: number;
+    weekId: string;
+  }): Promise<{
+    path: string;
+    data: any[];
+  }> {
+    const fixLeague = (input.league | 0).toString();
+    const fixStars = (input.stars | 0).toString();
+
+    const path = `stars~${this.#pk}`;
+
+    const toSign = new TextEncoder().encode(
+      JSON.stringify([this.#pk, input.weekId, fixLeague, fixStars]),
+    );
+
+    const sig = b64Enc(await ed.signAsync(toSign, b64Dec(this.#sk)));
+
+    const data = [input.weekId, fixLeague, fixStars, sig, this.#avatarCode];
+
+    return { path, data };
   }
 
   short(): string {
@@ -135,7 +117,6 @@ export class Ident {
     const inner = JSON.stringify(
       {
         short: this.#short,
-        ident: this.#ident,
         avatarCode: this.#avatarCode,
       },
       null,

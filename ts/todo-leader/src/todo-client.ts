@@ -1,6 +1,7 @@
 import { MainState, getWeekId } from "./state.js";
 import { Ident } from "./ident.js";
 import { WidgetPage, WidgetLoading, WidgetMain } from "./widgets.js";
+import { fnCall } from "@voidmerge/voidmerge-client";
 
 const page = new WidgetPage();
 page.setChild(new WidgetLoading());
@@ -80,43 +81,108 @@ function loadState(): MainState {
   return out;
 }
 
+let ident: boolean | Ident = false;
 const state = loadState();
+let lastPublishedPath = "";
+let lastPublishedStarCount = 0;
+let wantPublishPath = "";
+let wantPublishData: any[] = [];
+let wantPublishStarCount = 0;
 
 function saveState() {
   localStorage.setItem(STATE, JSON.stringify(state));
 }
 
+async function prepPublish() {
+  if (!(ident instanceof Ident)) {
+    return;
+  }
+
+  const { path, data } = await ident.sign({
+    league: state.league,
+    stars: state.starCount,
+    weekId: state.weekId,
+  });
+
+  wantPublishPath = path;
+  wantPublishData = data;
+  wantPublishStarCount = state.starCount;
+}
+
+async function tryPublish() {
+  if (
+    wantPublishPath === lastPublishedPath &&
+    wantPublishStarCount === lastPublishedStarCount
+  ) {
+    return;
+  }
+  wantPublishData.unshift(wantPublishPath);
+
+  console.log("PUBLISH", wantPublishData);
+
+  const u = new URL(globalThis.location.href);
+
+  try {
+    const res = await fnCall({
+      url: u.origin,
+      ctx: u.pathname.split("/")[1],
+      path: "publish",
+      body: new TextEncoder().encode(JSON.stringify(wantPublishData)),
+    });
+
+    console.log("PUBLISH RESULT", new TextDecoder().decode(res.body));
+
+    lastPublishedPath = wantPublishPath;
+    lastPublishedStarCount = wantPublishStarCount;
+  } catch (err: any) {
+    console.error("PUBLISH ERROR", err);
+  }
+}
+
 saveState();
 
+let main: undefined | WidgetMain = undefined;
+
 async function sync() {
-  console.log("sync");
+  if (ident === true) {
+    // already loading, exit this
+    return;
+  }
 
-  const myIdent: Ident =
-    (await Ident.load()) ||
-    (await (async () => {
-      const tmp = await Ident.random();
+  if (!ident) {
+    ident = true;
+    let tmp = await Ident.load();
+    if (!tmp) {
+      tmp = await Ident.random();
       tmp.store();
-      return tmp;
-    })());
+    }
+    ident = tmp;
 
-  console.log("loaded", myIdent.debug(), state);
+    console.log("loaded", ident.debug(), state);
+  }
 
-  const main = new WidgetMain(myIdent, state);
+  if (!main) {
+    main = new WidgetMain(ident, state);
 
-  main.setUpdate(
-    debounce(() => {
-      saveState();
-    }),
-  );
+    main.setUpdate(
+      debounce(() => {
+        saveState();
+        prepPublish();
+      }),
+    );
 
-  page.setChild(main);
+    page.setChild(main);
+  }
+
+  await tryPublish();
 }
 
 let lastSync: number = 0;
 function checkAnim(curTimestamp: number) {
   requestAnimationFrame(checkAnim);
 
-  if (curTimestamp - lastSync > 1000 * 60 * 10) {
+  // re-check state roughly every 10 seconds
+  if (curTimestamp - lastSync > 1000 * 10) {
     lastSync = curTimestamp;
     setTimeout(sync, 0);
   }
