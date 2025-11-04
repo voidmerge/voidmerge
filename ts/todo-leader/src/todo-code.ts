@@ -22,45 +22,49 @@ async function handleObjCheck(
 
 async function handleFn(req: VM.RequestFn): Promise<VM.ResponseFnOk> {
   if (req.path === "favicon.svg") {
-    return new VM.ResponseFnOk(
-      200,
-      new TextEncoder().encode(assets["favicon.svg"]),
-      {
+    return new VM.ResponseFnOk({
+      status: 200,
+      body: new TextEncoder().encode(assets["favicon.svg"]),
+      headers: {
         "content-type": "image/svg+xml",
       },
-    );
+    });
   } else if (req.path === "index.css") {
-    return new VM.ResponseFnOk(
-      200,
-      new TextEncoder().encode(assets["index.css"]),
-      {
+    return new VM.ResponseFnOk({
+      status: 200,
+      body: new TextEncoder().encode(assets["index.css"]),
+      headers: {
         "content-type": "text/css",
       },
-    );
+    });
   } else if (req.path === "index.js") {
-    return new VM.ResponseFnOk(
-      200,
-      new TextEncoder().encode(assets["index.js"]),
-      {
+    return new VM.ResponseFnOk({
+      status: 200,
+      body: new TextEncoder().encode(assets["index.js"]),
+      headers: {
         "content-type": "application/javascript",
       },
-    );
+    });
   } else if (req.path.startsWith("avatar/")) {
     const avatarCode = b64Dec(req.path.split("/")[1]);
     if (avatarCode.byteLength !== 16) {
       throw new Error("invalid avatar code");
     }
     const svg = avatarSvg(avatarCode);
-    return new VM.ResponseFnOk(200, new TextEncoder().encode(svg), {
-      "content-type": "image/svg+xml",
+    return new VM.ResponseFnOk({
+      status: 200,
+      body: new TextEncoder().encode(svg),
+      headers: {
+        "content-type": "image/svg+xml",
+      },
     });
   }
 
-  return new VM.ResponseFnOk(
-    200,
-    new TextEncoder().encode(assets["index.html"]),
-    {
+  return new VM.ResponseFnOk({
+    status: 200,
+    body: new TextEncoder().encode(assets["index.html"]),
+    headers: {
       "content-type": "text/html",
     },
-  );
+  });
 }

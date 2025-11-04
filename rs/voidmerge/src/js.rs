@@ -13,7 +13,11 @@ use std::sync::{Arc, Mutex};
     rename_all_fields = "camelCase"
 )]
 pub enum JsRequest {
-    /// Valitate an object to be stored.
+    /// Get the code config.
+    CodeConfigReq,
+    /// Execute the cron code.
+    CronReq,
+    /// Validate an object to be stored.
     ObjCheckReq {
         /// The content payload of the object.
         data: Bytes,
@@ -46,6 +50,16 @@ fn status() -> f64 {
     rename_all_fields = "camelCase"
 )]
 pub enum JsResponse {
+    /// Return this for code config requests.
+    CodeConfigResOk {
+        /// Interval for running cron executions.
+        #[serde(default)]
+        cron_interval_secs: Option<f64>,
+    },
+
+    /// Cron Ok Response.
+    CronResOk,
+
     /// Return this in case of ObjCheck request success.
     ObjCheckResOk,
 

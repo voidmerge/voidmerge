@@ -24,7 +24,7 @@
     "build:prebundle:todo-leader": "esbuild --bundle ts/todo-leader/src/todo-client.ts --minify --outfile=ts/todo-leader/dist/bundle-todo-client.js",
     "build:prebundle": "npm run build:prebundle:todo-leader",
     "build:tsc": "tsc --build",
-    "build:bundle:test-integration": "esbuild --bundle ts/test-integration/src/obj-simple.ts --sourcemap --outfile=ts/test-integration/dist/bundle-obj-simple.js && esbuild --bundle ts/test-integration/src/msg-simple.ts --sourcemap --outfile=ts/test-integration/dist/bundle-msg-simple.js",
+    "build:bundle:test-integration": "esbuild --bundle ts/test-integration/src/obj-simple.ts --sourcemap --outfile=ts/test-integration/dist/bundle-obj-simple.js && esbuild --bundle ts/test-integration/src/msg-simple.ts --sourcemap --outfile=ts/test-integration/dist/bundle-msg-simple.js && esbuild --bundle ts/test-integration/src/cron-simple.ts --sourcemap --outfile=ts/test-integration/dist/bundle-cron-simple.js",
     "build:bundle:todo-leader": "esbuild --bundle ts/todo-leader/src/todo-code.ts --sourcemap --outfile=ts/todo-leader/dist/bundle-todo-code.js",
     "build:bundle": "npm run build:bundle:test-integration && npm run build:bundle:todo-leader",
     "build:gen": "npm run build:prebundle && node scripts/file-gen.js",

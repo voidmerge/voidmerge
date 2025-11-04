@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 /// Context.
 pub struct Ctx {
+    this: Weak<Self>,
     #[allow(dead_code)]
     ctx: Arc<str>,
     #[allow(dead_code)]
@@ -12,16 +13,24 @@ pub struct Ctx {
     #[allow(dead_code)]
     config: crate::server::CtxConfig,
     js_setup: crate::js::JsSetup,
+    cron_interval_secs: Option<f64>,
+    task: tokio::task::AbortHandle,
+}
+
+impl Drop for Ctx {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
 }
 
 impl Ctx {
     /// Construct a new context.
-    pub fn new(
+    pub async fn new(
         ctx: Arc<str>,
         setup: crate::server::CtxSetup,
         config: crate::server::CtxConfig,
         runtime: Runtime,
-    ) -> Result<Self> {
+    ) -> Result<Arc<Self>> {
         let js_setup = crate::js::JsSetup {
             runtime,
             ctx: ctx.clone(),
@@ -29,12 +38,62 @@ impl Ctx {
             heap_size: setup.max_heap_bytes,
             code: config.code.clone(),
         };
-        Ok(Self {
+        let mut this = Self {
+            this: Weak::new(),
             ctx,
             setup,
             config,
             js_setup,
-        })
+            cron_interval_secs: None,
+            task: tokio::task::spawn(async move {}).abort_handle(),
+        };
+        this.code_config().await?;
+        let this = Arc::new_cyclic(move |weak_this| {
+            let weak_this = weak_this.clone();
+            this.this = weak_this.clone();
+            if let Some(int) = this.cron_interval_secs {
+                this.task = tokio::task::spawn(async move {
+                    loop {
+                        tokio::time::sleep(std::time::Duration::from_secs_f64(
+                            int,
+                        ))
+                        .await;
+                        if let Some(this) = weak_this.upgrade() {
+                            let _ = this.cron_req().await;
+                        } else {
+                            break;
+                        }
+                    }
+                })
+                .abort_handle();
+            }
+            this
+        });
+        Ok(this)
+    }
+
+    async fn code_config(&mut self) -> Result<()> {
+        if let Ok(crate::js::JsResponse::CodeConfigResOk {
+            cron_interval_secs,
+        }) = self
+            .js_setup
+            .runtime
+            .js()?
+            .exec(self.js_setup.clone(), crate::js::JsRequest::CodeConfigReq)
+            .await
+        {
+            self.cron_interval_secs = cron_interval_secs;
+        }
+        Ok(())
+    }
+
+    async fn cron_req(&self) -> Result<()> {
+        self.js_setup
+            .runtime
+            .js()?
+            .exec(self.js_setup.clone(), crate::js::JsRequest::CronReq)
+            .await?;
+        Ok(())
     }
 
     /// Process an ObjCheck request.
