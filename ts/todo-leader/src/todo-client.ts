@@ -87,10 +87,10 @@ function loadState(): MainState {
   return out;
 }
 
-async function checkLeague() {
+async function checkLeague(): Promise<boolean> {
   const now = Date.now();
   if (now - state.lastLeagueUpdate < 1000 * 60 * 5) {
-    return;
+    return false;
   }
   const u = new URL(globalThis.location.href);
   const res = await fnCall({
@@ -104,6 +104,7 @@ async function checkLeague() {
   }
   saveState();
   console.log("LEAGUE RESULT", state.leagueData);
+  return true;
 }
 
 let ident: boolean | Ident = false;
@@ -201,9 +202,9 @@ async function sync() {
   }
 
   await tryPublish();
-  await checkLeague();
-
-  main.render();
+  if (await checkLeague()) {
+    main.render();
+  }
 }
 
 let lastSync: number = 0;

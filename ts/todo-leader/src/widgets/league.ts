@@ -3,9 +3,10 @@ import { WidgetMain } from "./main.js";
 import { WidgetHoriz } from "./horiz.js";
 import { WidgetAvatar } from "./avatar.js";
 import { WidgetLabel } from "./label.js";
+import { WidgetLeagueItem } from "./league-item.js";
 import { Emoji, WidgetEmoji } from "./emoji.js";
 import type { MainState } from "../state.ts";
-import { Ident } from "../ident.js";
+import { pkToShort, Ident } from "../ident.js";
 
 export class WidgetLeague extends WidgetHoriz {
   #page: WidgetPage;
@@ -34,6 +35,7 @@ export class WidgetLeague extends WidgetHoriz {
     this.#ident = ident;
 
     this.#back = new WidgetEmoji(Emoji.back);
+    this.#back.getElem().classList.add("pin-top");
     this.#back.handleClick(() => this.#page.setChild(this.#main));
 
     this.render();
@@ -43,10 +45,21 @@ export class WidgetLeague extends WidgetHoriz {
     this.clear();
     this.append(this.#back);
 
-    const league = this.#state.leagueData.leagues[this.#state.league - 1];
+    const league: any = [
+      [this.#ident.pk(), this.#state.starCount, this.#ident.avatarCode()],
+    ];
+    for (const item of this.#state.leagueData.leagues[this.#state.league - 1]) {
+      if (item[0] !== this.#ident.pk()) {
+        league.push(item);
+      }
+    }
+    league.sort((a: any, b: any) => b[1] - a[1]);
     for (const [id, stars, avatarCode] of league) {
-      const avatar = new WidgetAvatar(avatarCode);
-      this.append(avatar);
+      const item = new WidgetLeagueItem(pkToShort(id), avatarCode, stars);
+      if (id === this.#ident.pk()) {
+        item.setIsSelf(true);
+      }
+      this.append(item);
     }
   }
 

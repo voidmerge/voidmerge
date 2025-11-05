@@ -195,8 +195,6 @@ input[type="text"] {
   justify-content: space-around;
 }
 .widget-horiz {
-  height: 100%;
-  width: 100%;
   display: flex;
   flex-direction: row;
   align-items: center;
@@ -204,6 +202,25 @@ input[type="text"] {
 }
 .widget-horiz.wrap {
   flex-wrap: wrap;
+}
+.widget-horiz.expand {
+  height: 100%;
+  width: 100%;
+}
+.league-item {
+  border: 2px solid #333;
+  border-radius: 5px;
+  padding: 10px;
+}
+.league-item.is-self {
+  border: 4px solid #333;
+  background-color: #fcc;
+  color: #333;
+}
+.pin-top {
+  position: absolute;
+  top: 40px;
+  left: 40px;
 }
 .widget-input {
   width: 30vw;

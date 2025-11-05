@@ -6,6 +6,7 @@ export * from "./widgets/vert.js";
 export * from "./widgets/horiz.js";
 export * from "./widgets/main.js";
 export * from "./widgets/league.js";
+export * from "./widgets/league-item.js";
 export * from "./widgets/emoji.js";
 export * from "./widgets/todo.js";
 export * from "./widgets/text.js";

@@ -117,6 +117,10 @@ export class WidgetMain extends WidgetVert {
     this.#update = () => {
       this.render();
       update();
+      const sel = globalThis.getSelection();
+      if (sel) {
+        sel.removeAllRanges();
+      }
     };
     this.#league.setUpdate(update);
     for (const todo of this.#todo) {

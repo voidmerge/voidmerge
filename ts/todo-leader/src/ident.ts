@@ -6,6 +6,24 @@ const D = "23456789";
 
 const STORE = "TodoLeader";
 
+export function pkToShort(pk: string): string {
+  const ident = b64Dec(pk);
+  const short =
+    A[ident[6] % A.length] +
+    A[ident[7] % A.length] +
+    D[ident[8] % D.length] +
+    "-" +
+    A[ident[9] % A.length] +
+    A[ident[10] % A.length] +
+    D[ident[11] % D.length] +
+    "-" +
+    A[ident[12] % A.length] +
+    A[ident[13] % A.length] +
+    D[ident[14] % D.length] +
+    A[ident[15] % A.length];
+  return short;
+}
+
 export class Ident {
   #pk: string;
   #sk: string;
@@ -17,24 +35,9 @@ export class Ident {
       throw new Error("invalid avatar code");
     }
 
-    const ident = b64Dec(pk);
-    const short =
-      A[ident[6] % A.length] +
-      A[ident[7] % A.length] +
-      D[ident[8] % D.length] +
-      "-" +
-      A[ident[9] % A.length] +
-      A[ident[10] % A.length] +
-      D[ident[11] % D.length] +
-      "-" +
-      A[ident[12] % A.length] +
-      A[ident[13] % A.length] +
-      D[ident[14] % D.length] +
-      A[ident[15] % A.length];
-
     this.#pk = pk;
     this.#sk = sk;
-    this.#short = short;
+    this.#short = pkToShort(pk);
     this.#avatarCode = b64Enc(avatarCode);
   }
 
@@ -98,6 +101,10 @@ export class Ident {
     const data = [input.weekId, fixLeague, fixStars, sig, this.#avatarCode];
 
     return { path, data };
+  }
+
+  pk(): string {
+    return this.#pk;
   }
 
   short(): string {
