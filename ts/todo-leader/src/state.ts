@@ -8,6 +8,8 @@ export interface MainState {
   weekId: string;
   starCount: number;
   league: number;
+  leagueData: any;
+  lastLeagueUpdate: number;
   todo: TodoState[];
 }
 

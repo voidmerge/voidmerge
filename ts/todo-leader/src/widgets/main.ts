@@ -1,13 +1,16 @@
+import { WidgetPage } from "./page.js";
 import { WidgetVert } from "./vert.js";
 import { WidgetHoriz } from "./horiz.js";
 import { WidgetTodo } from "./todo.js";
 import { WidgetLabel } from "./label.js";
 import { WidgetAvatar } from "./avatar.js";
+import { WidgetLeague } from "./league.js";
 import { Emoji, WidgetEmoji } from "./emoji.js";
 import type { MainState } from "../state.ts";
 import { Ident } from "../ident.js";
 
 export class WidgetMain extends WidgetVert {
+  #page: WidgetPage;
   #update: () => void;
   #state: MainState;
   #ident: Ident;
@@ -17,9 +20,13 @@ export class WidgetMain extends WidgetVert {
   #starLabel: WidgetLabel;
   #leagueLabel: WidgetLabel;
   #todo: WidgetTodo[];
+  #league: WidgetLeague;
 
-  constructor(ident: Ident, state: MainState) {
+  constructor(page: WidgetPage, ident: Ident, state: MainState) {
     super();
+
+    this.#page = page;
+    this.#page.setChild(this);
 
     this.#update = () => {};
     this.#state = state;
@@ -37,22 +44,30 @@ export class WidgetMain extends WidgetVert {
     this.#header.append(new WidgetLabel(ident.short()));
 
     const cal = new WidgetEmoji(Emoji.calendar);
-    cal.handleClick(() => alert(`week id: ${this.#state.weekId}`));
+    cal.handleClick(() => {
+      this.#page.setChild(this.#league);
+      this.#state.promoted = false;
+      this.#update();
+    });
     this.#header.append(cal);
     this.#weekLabel = new WidgetLabel("-");
     this.#header.append(this.#weekLabel);
 
     const star = new WidgetEmoji(Emoji.star);
-    star.handleClick(() => alert(`stars this week: ${this.#state.starCount}`));
+    star.handleClick(() => {
+      this.#page.setChild(this.#league);
+      this.#state.promoted = false;
+      this.#update();
+    });
     this.#header.append(star);
     this.#starLabel = new WidgetLabel("0");
     this.#header.append(this.#starLabel);
 
     const trophy = new WidgetEmoji(Emoji.trophy);
     trophy.handleClick(() => {
+      this.#page.setChild(this.#league);
       this.#state.promoted = false;
       this.#update();
-      alert(`league: ${this.#state.league}`);
     });
     this.#header.append(trophy);
     this.#leagueLabel = new WidgetLabel("1");
@@ -64,6 +79,8 @@ export class WidgetMain extends WidgetVert {
       this.append(todo);
     }
 
+    this.#league = new WidgetLeague(page, this, ident, state);
+
     this.render();
   }
 
@@ -73,6 +90,8 @@ export class WidgetMain extends WidgetVert {
   }
 
   render() {
+    this.#league.render();
+
     for (const todo of this.#todo) {
       todo.render();
     }
@@ -99,6 +118,7 @@ export class WidgetMain extends WidgetVert {
       this.render();
       update();
     };
+    this.#league.setUpdate(update);
     for (const todo of this.#todo) {
       todo.setUpdate(() => {
         this.render();

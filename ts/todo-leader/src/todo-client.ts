@@ -26,6 +26,8 @@ function loadState(): MainState {
     weekId: "",
     starCount: 0,
     league: 1,
+    leagueData: { state: "no-data" },
+    lastLeagueUpdate: 0,
     todo: [],
   };
 
@@ -36,12 +38,16 @@ function loadState(): MainState {
     typeof raw.promoted === "boolean" &&
     typeof raw.weekId === "string" &&
     typeof raw.starCount === "number" &&
-    typeof raw.league === "number"
+    typeof raw.league === "number" &&
+    typeof raw.leagueData === "object" &&
+    typeof raw.lastLeagueUpdate === "number"
   ) {
     out.promoted = raw.promoted;
     out.weekId = raw.weekId;
     out.starCount = raw.starCount;
     out.league = raw.league;
+    out.leagueData = raw.leagueData;
+    out.lastLeagueUpdate = raw.lastLeagueUpdate;
     for (const todo of raw.todo) {
       if (
         typeof todo === "object" &&
@@ -79,6 +85,25 @@ function loadState(): MainState {
   }
 
   return out;
+}
+
+async function checkLeague() {
+  const now = Date.now();
+  if (now - state.lastLeagueUpdate < 1000 * 60 * 5) {
+    return;
+  }
+  const u = new URL(globalThis.location.href);
+  const res = await fnCall({
+    url: u.origin,
+    ctx: u.pathname.split("/")[1],
+    path: "agg",
+  });
+  state.leagueData = JSON.parse(new TextDecoder().decode(res.body));
+  if (state.leagueData.state === "success") {
+    state.lastLeagueUpdate = now;
+  }
+  saveState();
+  console.log("LEAGUE RESULT", state.leagueData);
 }
 
 let ident: boolean | Ident = false;
@@ -159,10 +184,13 @@ async function sync() {
     ident = tmp;
 
     console.log("loaded", ident.debug(), state);
+
+    // publish current state asap
+    prepPublish();
   }
 
   if (!main) {
-    main = new WidgetMain(ident, state);
+    main = new WidgetMain(page, ident, state);
 
     main.setUpdate(
       debounce(() => {
@@ -170,11 +198,12 @@ async function sync() {
         prepPublish();
       }),
     );
-
-    page.setChild(main);
   }
 
   await tryPublish();
+  await checkLeague();
+
+  main.render();
 }
 
 let lastSync: number = 0;

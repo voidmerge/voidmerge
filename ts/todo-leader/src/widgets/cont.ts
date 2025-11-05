@@ -14,6 +14,13 @@ export class WidgetCont extends Widget {
     return this.#div;
   }
 
+  clear() {
+    while (this.#div.childNodes.length > 0) {
+      this.#div.removeChild(this.#div.childNodes[0]);
+    }
+    this.#children = [];
+  }
+
   append(child: Widget) {
     this.#div.appendChild(child.getElem());
     this.#children.push(child);

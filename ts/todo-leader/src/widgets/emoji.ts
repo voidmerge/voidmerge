@@ -1,6 +1,7 @@
 import { Widget } from "./widget.js";
 
 export const Emoji = {
+  back: "🔙",
   star: "⭐",
   circleBlack: "⚫",
   check: "✅",
