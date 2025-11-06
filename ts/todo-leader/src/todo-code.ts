@@ -244,7 +244,48 @@ async function handleCron(): Promise<VM.ResponseCronOk> {
 async function handleObjCheck(
   req: VM.RequestObjCheck,
 ): Promise<VM.ResponseObjCheckOk> {
-  return new VM.ResponseObjCheckOk();
+  if (req.meta.appPath() === "agg" && req.data.byteLength <= 8192) {
+    return new VM.ResponseObjCheckOk();
+  }
+
+  if (req.meta.appPath().startsWith("stars~")) {
+    const pk = b64Dec(req.meta.appPath().substring(6));
+    if (pk.byteLength !== 32) {
+      throw new Error("invalid pubkey");
+    }
+    if (req.data.byteLength > 512) {
+      throw new Error("data too long");
+    }
+    const data = JSON.parse(new TextDecoder().decode(req.data));
+    if (!Array.isArray(data)) {
+      throw new Error("data not an array");
+    }
+    return new VM.ResponseObjCheckOk();
+  }
+
+  throw new Error(`invalid path: ${req.meta.appPath()}`);
+}
+
+class Headers {
+  #hdr: { [k: string]: string };
+
+  constructor() {
+    this.#hdr = {};
+  }
+
+  contentType(t: string): Headers {
+    this.#hdr["content-type"] = t;
+    return this;
+  }
+
+  cache(): Headers {
+    this.#hdr["cache-control"] = "public, max-age=7200, s-maxage=7200";
+    return this;
+  }
+
+  finish(): { [k: string]: string } {
+    return this.#hdr;
+  }
 }
 
 /**
@@ -256,17 +297,13 @@ async function handleFn(req: VM.RequestFn): Promise<VM.ResponseFnOk> {
     return new VM.ResponseFnOk({
       status: 200,
       body: new TextEncoder().encode("Ok"),
-      headers: {
-        "content-type": "text/plain",
-      },
+      headers: new Headers().contentType("text/plain").finish(),
     });
   } else if (req.path === "env") {
     return new VM.ResponseFnOk({
       status: 200,
       body: new TextEncoder().encode(JSON.stringify(VM.env())),
-      headers: {
-        "content-type": "application/json",
-      },
+      headers: new Headers().contentType("application/json").finish(),
     });
   } else if (req.path === "agg") {
     let res = { state: "no-data", leagues: LEAGUES };
@@ -288,9 +325,7 @@ async function handleFn(req: VM.RequestFn): Promise<VM.ResponseFnOk> {
     return new VM.ResponseFnOk({
       status: 200,
       body: new TextEncoder().encode(JSON.stringify(res)),
-      headers: {
-        "content-type": "application/json",
-      },
+      headers: new Headers().contentType("application/json").finish(),
     });
   } else if (req.path === "publish") {
     const raw = JSON.parse(new TextDecoder().decode(req.body));
@@ -316,33 +351,28 @@ async function handleFn(req: VM.RequestFn): Promise<VM.ResponseFnOk> {
     return new VM.ResponseFnOk({
       status: 200,
       body: new TextEncoder().encode(meta.fullPath()),
-      headers: {
-        "content-type": "application/json",
-      },
+      headers: new Headers().contentType("application/json").finish(),
     });
   } else if (req.path === "favicon.svg") {
     return new VM.ResponseFnOk({
       status: 200,
       body: new TextEncoder().encode(assets["favicon.svg"]),
-      headers: {
-        "content-type": "image/svg+xml",
-      },
+      headers: new Headers().contentType("image/svg+xml").cache().finish(),
     });
   } else if (req.path === "index.css") {
     return new VM.ResponseFnOk({
       status: 200,
       body: new TextEncoder().encode(assets["index.css"]),
-      headers: {
-        "content-type": "text/css",
-      },
+      headers: new Headers().contentType("text/css").cache().finish(),
     });
   } else if (req.path === "index.js") {
     return new VM.ResponseFnOk({
       status: 200,
       body: new TextEncoder().encode(assets["index.js"]),
-      headers: {
-        "content-type": "application/javascript",
-      },
+      headers: new Headers()
+        .contentType("text/javascript")
+        .cache()
+        .finish(),
     });
   } else if (req.path.startsWith("avatar/")) {
     const avatarCode = b64Dec(req.path.split("/")[1]);
@@ -353,17 +383,13 @@ async function handleFn(req: VM.RequestFn): Promise<VM.ResponseFnOk> {
     return new VM.ResponseFnOk({
       status: 200,
       body: new TextEncoder().encode(svg),
-      headers: {
-        "content-type": "image/svg+xml",
-      },
+      headers: new Headers().contentType("image/svg+xml").cache().finish(),
     });
   }
 
   return new VM.ResponseFnOk({
     status: 200,
     body: new TextEncoder().encode(assets["index.html"]),
-    headers: {
-      "content-type": "text/html",
-    },
+    headers: new Headers().contentType("text/html").cache().finish(),
   });
 }
