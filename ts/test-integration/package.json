@@ -7,6 +7,6 @@
     "test": "npm test --include-workspace-root -w"
   },
   "dependencies": {
-    "@voidmerge/voidmerge-code": "^0.0.6"
+    "@voidmerge/voidmerge-code": "^0.0.7"
   }
 }
