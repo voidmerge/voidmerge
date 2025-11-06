@@ -5,11 +5,11 @@
 all: test
 
 test:
+	npm ci
 	cargo fmt -- --check
 	cargo clippy --locked -- -D warnings
 	RUSTFLAGS="-D warnings" cargo test --locked --all-features
 	(cd rs/voidmerge/ && cargo rdme --force)
-	npm ci
 	npm test
 	@if [ "${CI}x" != "x" ]; then git diff --exit-code; fi
 

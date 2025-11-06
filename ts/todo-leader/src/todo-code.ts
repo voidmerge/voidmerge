@@ -369,10 +369,7 @@ async function handleFn(req: VM.RequestFn): Promise<VM.ResponseFnOk> {
     return new VM.ResponseFnOk({
       status: 200,
       body: new TextEncoder().encode(assets["index.js"]),
-      headers: new Headers()
-        .contentType("text/javascript")
-        .cache()
-        .finish(),
+      headers: new Headers().contentType("text/javascript").cache().finish(),
     });
   } else if (req.path.startsWith("avatar/")) {
     const avatarCode = b64Dec(req.path.split("/")[1]);
