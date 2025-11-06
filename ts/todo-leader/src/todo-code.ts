@@ -269,7 +269,7 @@ async function handleFn(req: VM.RequestFn): Promise<VM.ResponseFnOk> {
       },
     });
   } else if (req.path === "agg") {
-    let res = { state: "no-data" };
+    let res = { state: "no-data", leagues: LEAGUES };
 
     try {
       const { data } = await VM.objGet({

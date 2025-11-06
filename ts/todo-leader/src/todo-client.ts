@@ -26,7 +26,7 @@ function loadState(): MainState {
     weekId: "",
     starCount: 0,
     league: 1,
-    leagueData: { state: "no-data" },
+    leagueData: { state: "no-data", leagues: [[],[],[],[],[],[],[],[],[]] },
     lastLeagueUpdate: 0,
     todo: [],
   };
