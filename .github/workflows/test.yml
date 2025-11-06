@@ -46,5 +46,5 @@ jobs:
         run: make test
 
       - name: Check No Change
-        if: runner.os = "Linux"
+        if: runner.os == 'Linux'
         run: git diff --exit-code
