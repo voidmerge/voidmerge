@@ -376,6 +376,8 @@ impl Inner {
                 ) {
                     return Some((item.meta_path, item.data_path));
                 }
+            } else {
+                return Some((orig_item.meta_path, orig_item.data_path));
             }
         }
         None
@@ -511,6 +513,43 @@ mod test {
 
         let got = of.get("c/AAAA/bob/1.0/0.0".into()).await.unwrap().1;
         assert_eq!(&b"hello"[..], &got[..]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn clean_replaced_items() {
+        let td = tempfile::tempdir().unwrap();
+
+        let of = ObjFile::create(Some(td.path().into())).await.unwrap();
+
+        of.put(
+            "c/AAAA/bob/1.0/0.0".into(),
+            bytes::Bytes::from_static(b"hello"),
+        )
+        .await
+        .unwrap();
+
+        of.put(
+            "c/AAAA/bob/2.0/0.0".into(),
+            bytes::Bytes::from_static(b"world"),
+        )
+        .await
+        .unwrap();
+
+        let mut file_count = 0;
+
+        let mut dir = async_walkdir::WalkDir::new(td.path());
+        use futures::StreamExt;
+        while let Some(entry) = dir.next().await {
+            let entry = entry.unwrap();
+            if entry.path().is_file()
+                && entry.file_name().to_string_lossy().starts_with("meta-")
+            {
+                println!("{:?}", entry.path());
+                file_count += 1;
+            }
+        }
+
+        assert_eq!(1, file_count);
     }
 
     #[tokio::test(flavor = "multi_thread")]
