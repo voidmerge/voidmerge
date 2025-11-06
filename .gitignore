@@ -8,6 +8,7 @@ docs
 /ts/doc/dist
 /ts/doc/docs
 /ts/test-integration/dist
+/ts/todo-leader/dist
 /ts/voidmerge-client/dist
 /ts/voidmerge-client/docs
 /ts/voidmerge-code/dist

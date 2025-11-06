@@ -16,6 +16,7 @@ test                      : Run a test server (sysadmin: 'test', ctx: 'test')
   --http-addr <HTTP_ADDR> : Http server address to bind (env: VM_HTTP_ADDR=)
                             (def: '[::]:8080')
   --code-file <PATH>      : Javascript code for the context (env: VM_CODE=)
+  --code-env  <PATH>      : Json string for ctx env metadata (env: VM_ENV=)
 
 health                    : Execute a health check against a server
   --url       <URL>       : The server url (env: VM_URL=)
@@ -40,6 +41,7 @@ ctx-config                : Configure a context (ctxadmin)
   --ctx-admin <TOKENS>    : CtxAdmin tokens to setup in the context
                             (env: VM_CTX_ADMIN_TOKENS=, comma delimited)
   --code-file <PATH>      : Javascript code for the context (env: VM_CODE=)
+  --code-env  <PATH>      : Json string for ctx env metadata (env: VM_ENV=)
 
 obj-list                  : List objects in a context store (ctxadmin)
   --url       <URL>       : The server url (env: VM_URL=)

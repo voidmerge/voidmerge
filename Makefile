@@ -5,13 +5,12 @@
 all: test
 
 test:
+	npm ci
 	cargo fmt -- --check
 	cargo clippy --locked -- -D warnings
 	RUSTFLAGS="-D warnings" cargo test --locked --all-features
 	(cd rs/voidmerge/ && cargo rdme --force)
-	npm ci
 	npm test
-	@if [ "${CI}x" != "x" ]; then git diff --exit-code; fi
 
 bump:
 	@if [ "$(ver)x" = "x" ]; then \
@@ -24,6 +23,8 @@ bump:
 	sed -i 's/^\(\s*"@voidmerge\/voidmerge-client": "\)[^"]*"/\1^$(ver)"/g' ./ts/doc/package.json
 	sed -i 's/^\(\s*"@voidmerge\/voidmerge-code": "\)[^"]*"/\1^$(ver)"/g' ./ts/doc/package.json
 	sed -i 's/^\(\s*"@voidmerge\/voidmerge-code": "\)[^"]*"/\1^$(ver)"/g' ./ts/test-integration/package.json
+	sed -i 's/^\(\s*"@voidmerge\/voidmerge-client": "\)[^"]*"/\1^$(ver)"/g' ./ts/todo-leader/package.json
+	sed -i 's/^\(\s*"@voidmerge\/voidmerge-code": "\)[^"]*"/\1^$(ver)"/g' ./ts/todo-leader/package.json
 	npm install
 	cargo update
 	$(MAKE) test

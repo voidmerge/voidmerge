@@ -1,4 +1,5 @@
 const CTX: string = "AAAA";
+const ENV: any = { envTest: "BBBB" };
 const STORE: { [meta: string]: Uint8Array } = {};
 const MSG: { [meta: string]: boolean } = {};
 
@@ -7,6 +8,9 @@ export function checkTestSetup() {
     globalThis.VM = {
       ctx(): string {
         return CTX;
+      },
+      env(): any {
+        return ENV;
       },
       async msgNew(): Promise<{ msgId: string }> {
         const msgId = Math.random().toString();

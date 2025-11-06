@@ -1,9 +1,4 @@
 .github
 book
 rs
-ts/example1/dist
-ts/test-integration/dist
-ts/voidmerge-client/dist
-ts/voidmerge-client/docs
-ts/voidmerge-code/dist
-ts/voidmerge-code/docs
+ts/todo-leader/src/assets.ts

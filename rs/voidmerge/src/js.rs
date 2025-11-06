@@ -105,6 +105,9 @@ pub struct JsSetup {
 
     /// Javascript code to initialize.
     pub code: Arc<str>,
+
+    /// Javascript env to make available.
+    pub env: Arc<serde_json::Value>,
 }
 
 impl JsSetup {
@@ -302,6 +305,21 @@ mod deno_ext {
     ) -> std::result::Result<Arc<str>, deno_core::error::CoreError> {
         match state.borrow().try_borrow::<TState>() {
             Some(TState { setup, .. }) => Ok(setup.ctx.clone()),
+            _ => Err(deno_core::error::CoreErrorKind::Io(Error::other(
+                "bad state",
+            ))
+            .into()),
+        }
+    }
+
+    #[deno_core::op2]
+    #[serde]
+    fn op_get_env(
+        state: Rc<RefCell<OpState>>,
+    ) -> std::result::Result<Arc<serde_json::Value>, deno_core::error::CoreError>
+    {
+        match state.borrow().try_borrow::<TState>() {
+            Some(TState { setup, .. }) => Ok(setup.env.clone()),
             _ => Err(deno_core::error::CoreErrorKind::Io(Error::other(
                 "bad state",
             ))
@@ -608,6 +626,7 @@ mod deno_ext {
         deps = [deno_console],
         ops = [
             op_get_ctx,
+            op_get_env,
             op_to_utf8,
             op_from_utf8,
             op_msg_new,
@@ -836,6 +855,7 @@ mod test {
         let setup = JsSetup {
             runtime: rth.runtime(),
             ctx: "bobbo".into(),
+            env: Arc::new(serde_json::Value::Null),
             code: "
 async function vm(req) {
     if (req.type === 'objCheckReq') {

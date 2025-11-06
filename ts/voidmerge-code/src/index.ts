@@ -24,6 +24,7 @@ type VmRawReq =
 
 interface GlobalVM {
   ctx(): string;
+  env(): any;
   msgNew(): Promise<{ msgId: string }>;
   msgList(): Promise<{ msgIdList: string[] }>;
   msgSend(input: { msgId: string; msg: Uint8Array }): Promise<void>;
@@ -328,6 +329,13 @@ export function defineVoidMergeHandler(handler: VoidMergeHandler) {
  */
 export function ctx(): string {
   return globalThis.VM.ctx();
+}
+
+/**
+ * Get any environment that was supplied with CtxConfig.
+ */
+export function env(): any {
+  return globalThis.VM.env();
 }
 
 /**
