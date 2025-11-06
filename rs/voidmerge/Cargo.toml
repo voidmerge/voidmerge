@@ -34,6 +34,7 @@ tracing-subscriber = { workspace = true, optional = true, features = [ "env-filt
 zip = { workspace = true, optional = true }
 
 [dev-dependencies]
+async-walkdir = "2.1.0"
 tokio = { workspace = true, features = [ "full" ] }
 xshell = { workspace = true }
 
