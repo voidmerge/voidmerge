@@ -3,9 +3,10 @@
   "private": true,
   "type": "module",
   "workspaces": [
+    "ts/demo/todo-leader",
+    "ts/demo/counter",
     "ts/doc",
     "ts/test-integration",
-    "ts/todo-leader",
     "ts/voidmerge-client",
     "ts/voidmerge-code"
   ],
@@ -21,13 +22,14 @@
     "typescript": "^5.9.3"
   },
   "scripts": {
-    "build:prebundle:todo-leader": "esbuild --bundle ts/todo-leader/src/todo-client.ts --minify --outfile=ts/todo-leader/dist/bundle-todo-client.js",
+    "build:prebundle:todo-leader": "esbuild --bundle ts/demo/todo-leader/src/todo-client.ts --minify --outfile=ts/demo/todo-leader/dist/bundle-todo-client.js",
     "build:prebundle": "npm run build:prebundle:todo-leader",
     "build:pretsc": "tsc -p ./ts/voidmerge-code/tsconfig.json && tsc -p ./ts/voidmerge-client/tsconfig.json",
     "build:tsc": "tsc --build",
     "build:bundle:test-integration": "esbuild --bundle ts/test-integration/src/obj-simple.ts --sourcemap --outfile=ts/test-integration/dist/bundle-obj-simple.js && esbuild --bundle ts/test-integration/src/msg-simple.ts --sourcemap --outfile=ts/test-integration/dist/bundle-msg-simple.js && esbuild --bundle ts/test-integration/src/cron-simple.ts --sourcemap --outfile=ts/test-integration/dist/bundle-cron-simple.js",
-    "build:bundle:todo-leader": "esbuild --bundle ts/todo-leader/src/todo-code.ts --sourcemap --outfile=ts/todo-leader/dist/bundle-todo-code.js",
-    "build:bundle": "npm run build:bundle:test-integration && npm run build:bundle:todo-leader",
+    "build:bundle:todo-leader": "esbuild --bundle ts/demo/todo-leader/src/todo-code.ts --minify --sourcemap --outfile=ts/demo/todo-leader/dist/bundle-todo-code.js",
+    "build:bundle:counter": "esbuild --bundle ts/demo/counter/src/index.ts --minify --sourcemap --outfile=ts/demo/counter/dist/bundle-counter.js",
+    "build:bundle": "npm run build:bundle:test-integration && npm run build:bundle:todo-leader && npm run build:bundle:counter",
     "build:gen": "npm run build:pretsc && npm run build:prebundle && node scripts/file-gen.js",
     "build": "npm run build:gen && npm run build:tsc && npm run build:bundle",
     "clean": "tsc --build --clean",

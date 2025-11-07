@@ -1,0 +1,13 @@
+{
+  "name": "@voidmerge/counter",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "npm run build --include-workspace-root -w",
+    "test": "npm test --include-workspace-root -w",
+    "start": "npm run build && vm test --code-file dist/bundle-counter.js"
+  },
+  "dependencies": {
+    "@voidmerge/voidmerge-code": "^0.0.7"
+  }
+}

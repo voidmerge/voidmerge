@@ -70,17 +70,21 @@ async function addSvgParts(path) {
 }
 
 async function main() {
-  await addSvgParts("ts/todo-leader/src/todo-leader.svg");
+  await addSvgParts("ts/demo/todo-leader/src/todo-leader.svg");
 
-  await addAsset("ts/todo-leader/src/index.html", "index.html", htmlMinify);
-  await addAsset("ts/todo-leader/src/index.css", "index.css", cssMinify);
-  await addAsset("ts/todo-leader/dist/bundle-todo-client.js", "index.js");
+  await addAsset(
+    "ts/demo/todo-leader/src/index.html",
+    "index.html",
+    htmlMinify,
+  );
+  await addAsset("ts/demo/todo-leader/src/index.css", "index.css", cssMinify);
+  await addAsset("ts/demo/todo-leader/dist/bundle-todo-client.js", "index.js");
   await addAsset("book/theme/favicon.svg", "favicon.svg");
 
   const content = JSON.stringify(assets, null, 2);
 
   await fs.writeFile(
-    "ts/todo-leader/src/assets.ts",
+    "ts/demo/todo-leader/src/assets.ts",
     `/**
  * This file is auto-generated, do not edit directly!
  */
