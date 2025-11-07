@@ -6,6 +6,7 @@ target
 node_modules
 docs
 /ts/demo/todo-leader/dist
+/ts/demo/counter/dist
 /ts/doc/dist
 /ts/doc/docs
 /ts/test-integration/dist
