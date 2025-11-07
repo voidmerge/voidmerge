@@ -1,9 +1,9 @@
 {
   "files": [],
   "references": [
+    { "path": "ts/demo/todo-leader" },
     { "path": "ts/doc" },
     { "path": "ts/test-integration" },
-    { "path": "ts/todo-leader" },
     { "path": "ts/voidmerge-client" },
     { "path": "ts/voidmerge-code" }
   ]
