@@ -39,8 +39,12 @@ jobs:
 
       - name: Install Utilities
         run: |
+          cargo install cargo-sweep
           cargo install cargo-rdme
           cargo install --path rs/voidmerge --bin vm
+
+      - name: Cargo Sweep Stamp
+        run: cargo sweep --stamp
 
       - name: Make Test
         run: make test
@@ -48,3 +52,6 @@ jobs:
       - name: Check No Change
         if: runner.os == 'Linux'
         run: git diff --exit-code
+
+      - name: Cargo Sweep File
+        run: cargo sweep --file

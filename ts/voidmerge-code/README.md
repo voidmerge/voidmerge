@@ -1,8 +1,6 @@
 # voidmerge-code
 
-![Crates.io License](https://img.shields.io/crates/l/voidmerge)
-![Crates.io Version](https://img.shields.io/crates/v/voidmerge)
-![NPM Version](https://img.shields.io/npm/v/%40voidmerge%2Fvoidmerge-code)
+[![NPM Code Version](https://img.shields.io/npm/v/%40voidmerge%2Fvoidmerge-code?label=voidmerge-code)](https://www.npmjs.com/package/@voidmerge/voidmerge-code)
 
 [https://voidmerge.com](https://voidmerge.com)
 
