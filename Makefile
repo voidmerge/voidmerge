@@ -23,8 +23,9 @@ bump:
 	sed -i 's/^\(\s*"@voidmerge\/voidmerge-client": "\)[^"]*"/\1^$(ver)"/g' ./ts/doc/package.json
 	sed -i 's/^\(\s*"@voidmerge\/voidmerge-code": "\)[^"]*"/\1^$(ver)"/g' ./ts/doc/package.json
 	sed -i 's/^\(\s*"@voidmerge\/voidmerge-code": "\)[^"]*"/\1^$(ver)"/g' ./ts/test-integration/package.json
-	sed -i 's/^\(\s*"@voidmerge\/voidmerge-client": "\)[^"]*"/\1^$(ver)"/g' ./ts/todo-leader/package.json
-	sed -i 's/^\(\s*"@voidmerge\/voidmerge-code": "\)[^"]*"/\1^$(ver)"/g' ./ts/todo-leader/package.json
+	sed -i 's/^\(\s*"@voidmerge\/voidmerge-client": "\)[^"]*"/\1^$(ver)"/g' ./ts/demo/todo-leader/package.json
+	sed -i 's/^\(\s*"@voidmerge\/voidmerge-code": "\)[^"]*"/\1^$(ver)"/g' ./ts/demo/todo-leader/package.json
+	sed -i 's/^\(\s*"@voidmerge\/voidmerge-code": "\)[^"]*"/\1^$(ver)"/g' ./ts/demo/counter/package.json
 	npm install
 	cargo update
 	$(MAKE) test

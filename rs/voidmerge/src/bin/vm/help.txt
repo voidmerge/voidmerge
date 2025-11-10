@@ -1,4 +1,4 @@
-VoidMerge P2p in Easy Mode
+VoidMerge: The open-source, developer friendly web services platform.
 
 Usage: vm <COMMAND> <OPTIONS>
 
