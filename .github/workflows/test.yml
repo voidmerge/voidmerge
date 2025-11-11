@@ -37,11 +37,6 @@ jobs:
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
 
-      - name: Cargo Sweep Stamp
-        run: |
-          cargo install cargo-sweep
-          cargo sweep --stamp
-
       - name: Install Utilities
         run: |
           cargo install -f cargo-rdme
@@ -53,6 +48,3 @@ jobs:
       - name: Check No Change
         if: runner.os == 'Linux'
         run: git diff --exit-code
-
-      - name: Cargo Sweep File
-        run: cargo sweep --file
