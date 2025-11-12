@@ -1,10 +1,10 @@
 # What is VoidMerge?
 
-Void Merge is a powerful and simple to use web and application development framework.
-- Stores, distributes, and validates app-defined structured data
-- Facilitates peer-to-peer communications
-- Built-in web hosting
-- RESTful API for developing applications
+Void Merge is the next-generation, developer oriented web services platform.
+- Forever open-source design eliminates big-tech vendor lock-in.
+- Conflict-free data replication makes clustering a breeze.
+- Built from the start for state of the art real-time P2P apps and post-quantum security.
+- Managed hosting for turnkey security and reliability.
 
 ## The `vm` Utility
 

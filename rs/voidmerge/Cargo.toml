@@ -18,6 +18,7 @@ base64 = { workspace = true }
 bytes = { workspace = true, features = [ "serde" ] }
 deno_core = { workspace = true }
 futures = { workspace = true, optional = true }
+hyper = { workspace = true }
 minimist = { workspace = true, optional = true }
 rand = { workspace = true }
 reqwest = { workspace = true }
