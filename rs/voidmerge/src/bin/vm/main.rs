@@ -25,6 +25,10 @@ fn arg_parse() -> Result<Arg> {
         .to_one_str(minimist::Minimist::POS)
         .unwrap_or_else(|| "help".into());
 
+    if args.as_flag("v") || args.as_flag("version") {
+        cmd = "version".into();
+    }
+
     if args.as_flag("h") || args.as_flag("help") {
         cmd = "help".into();
     }
@@ -55,6 +59,7 @@ fn arg_parse() -> Result<Arg> {
 
     match cmd.as_ref() {
         "help" => Ok(Arg::Help),
+        "version" => Ok(Arg::Version),
         "serve" => {
             def_split_env(&mut args, "sys-admin", "VM_SYS_ADMIN_TOKENS");
             args.entry("sys-admin".into()).or_default();
@@ -255,6 +260,7 @@ async fn main() -> Result<()> {
 
 enum Arg {
     Help,
+    Version,
     Serve {
         sys_admin: Vec<Arc<str>>,
         http_addr: String,
@@ -346,6 +352,14 @@ impl Arg {
         match self {
             Self::Help => {
                 help();
+                Ok(())
+            }
+            Self::Version => {
+                println!(
+                    "{} {}",
+                    env!("CARGO_PKG_NAME"),
+                    env!("CARGO_PKG_VERSION")
+                );
                 Ok(())
             }
             Self::Serve {

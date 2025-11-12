@@ -58,12 +58,13 @@ fn safe_str(s: &str) -> Result<()> {
             || (*b >= b'0' && *b <= b'9')
             || *b == b'-'
             || *b == b'_'
+            || *b == b'.'
             || *b == b'~'
         {
             continue;
         }
         return Err(Error::other(
-            "Invalid string (can only contain [a-z], [A-Z], [0-9], '-', '_', and '~')",
+            "Invalid string (can only contain [a-z], [A-Z], [0-9], '-', '_', '.', and '~')",
         ));
     }
     Ok(())
