@@ -41,8 +41,10 @@ async function put(
   const putUrl = new URL(url);
   putUrl.pathname = path;
 
+  const buf = body.slice(0, body.byteLength);
+
   const res = await fetch(putUrl, {
-    body: body.slice().buffer,
+    body: buf,
     headers: {
       Authorization: `Bearer ${token}`,
     },

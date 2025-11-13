@@ -132,6 +132,7 @@ pub async fn http_server(
 
     let app = app
         .layer(cors)
+        .layer(axum::extract::DefaultBodyLimit::max(10 * 1024 * 1024))
         .with_state(state)
         .into_make_service_with_connect_info::<std::net::SocketAddr>();
 
