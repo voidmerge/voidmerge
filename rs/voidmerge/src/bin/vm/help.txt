@@ -4,6 +4,8 @@ Usage: vm <COMMAND> <OPTIONS>
 
 help -h --help            : Print this help
 
+version -v --version      : Print version info
+
 serve                     : Run the VoidMerge HTTP server
   --sys-admin <SYS_ADMIN> : SysAdmin tokens to set during startup
                             (env: VM_SYS_ADMIN_TOKENS=, comma delimited)
