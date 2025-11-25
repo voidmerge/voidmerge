@@ -191,7 +191,7 @@ impl Js {
                 .clone()
                 .acquire_owned()
                 .await
-                .expect("permit error");
+                .map_err(|_| std::io::Error::other("permit error"))?;
 
             found = Some(
                 self.pool
@@ -201,7 +201,9 @@ impl Js {
             );
         }
 
-        let thread = found.unwrap();
+        let thread = found.ok_or_else(|| {
+            std::io::Error::other("failed to get or create thread")
+        })?;
 
         let out = thread.exec(setup.clone(), request, weak).await;
 
@@ -757,10 +759,20 @@ impl JsThread {
                     ..Default::default()
                 };
 
-                let mut rust = rustyscript::Runtime::new(opts).unwrap();
+                let mut rust = match rustyscript::Runtime::new(opts) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        on_drop.not_ready();
+                        let _ = cur_output.send(Err(std::io::Error::other(e)));
+                        return;
+                    }
+                };
 
-                rust.put(TState::new(cur_setup.clone(), cur_weak.clone()))
-                    .unwrap();
+                if let Err(e) = rust.put(TState::new(cur_setup.clone(), cur_weak.clone())) {
+                    on_drop.not_ready();
+                    let _ = cur_output.send(Err(std::io::Error::other(e)));
+                    return;
+                }
 
                 if let Err(err) = rust.eval::<()>(&cur_setup.code) {
                     on_drop.not_ready();

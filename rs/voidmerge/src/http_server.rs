@@ -57,20 +57,30 @@ impl axum::response::IntoResponse for crate::js::JsResponse {
                     axum::response::Response::builder().status(status as u16);
 
                 {
-                    let hdr = bld.headers_mut().unwrap();
-                    for (k, v) in headers.iter() {
-                        if let Ok(v) = axum::http::HeaderValue::from_str(v)
-                            && let Ok(k) =
-                                axum::http::HeaderName::from_bytes(k.as_bytes())
-                        {
-                            hdr.insert(k, v);
+                    if let Some(hdr) = bld.headers_mut() {
+                        for (k, v) in headers.iter() {
+                            if let Ok(v) = axum::http::HeaderValue::from_str(v)
+                                && let Ok(k) = axum::http::HeaderName::from_bytes(
+                                    k.as_bytes(),
+                                )
+                            {
+                                hdr.insert(k, v);
+                            }
                         }
                     }
                 }
 
-                bld.body(axum::body::Body::from(body)).unwrap()
+                bld.body(axum::body::Body::from(body)).unwrap_or_else(|_| {
+                    axum::response::Response::builder()
+                        .status(axum::http::StatusCode::INTERNAL_SERVER_ERROR)
+                        .body(axum::body::Body::from("Internal Server Error"))
+                        .unwrap()
+                })
             }
-            _ => unreachable!(),
+            _ => axum::response::Response::builder()
+                .status(axum::http::StatusCode::INTERNAL_SERVER_ERROR)
+                .body(axum::body::Body::from("Internal Server Error"))
+                .unwrap(),
         }
     }
 }
