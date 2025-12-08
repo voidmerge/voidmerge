@@ -235,16 +235,18 @@ async fn main() -> Result<()> {
         tracing_subscriber::FmtSubscriber::builder()
             .with_env_filter(
                 tracing_subscriber::EnvFilter::builder()
+                    .with_env_var("VM_LOG")
                     .with_default_directive(
                         tracing_subscriber::filter::LevelFilter::INFO.into(),
                     )
                     .from_env_lossy(),
             )
-            .compact()
-            .without_time()
+            .json()
             .finish(),
     )
     .unwrap();
+
+    voidmerge::meter::meter_init();
 
     let arg = match arg_parse() {
         Ok(arg) => arg,
@@ -258,6 +260,7 @@ async fn main() -> Result<()> {
     arg.exec().await
 }
 
+#[derive(Debug)]
 enum Arg {
     Help,
     Version,
@@ -339,7 +342,7 @@ async fn serve(
     })?;
     let runtime = RuntimeHandle::default();
     runtime.set_obj(obj::obj_file::ObjFile::create(store).await?);
-    runtime.set_js(js::JsExecDefault::create());
+    runtime.set_js(js::JsExecMeter::create(js::JsExecDefault::create()));
     runtime.set_msg(msg::MsgMem::create());
 
     let server = server::Server::new(runtime).await?;
@@ -349,6 +352,7 @@ async fn serve(
 
 impl Arg {
     async fn exec(self) -> Result<()> {
+        tracing::info!(args = ?self);
         match self {
             Self::Help => {
                 help();
