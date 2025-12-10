@@ -55,7 +55,9 @@ async fn init_meter_task() {
             tracing::info!(
                 target: "METER",
                 %ctx,
-                meter = %serde_json::to_string(&meter).unwrap(),
+                fnGibSec = meter.fn_gib_sec,
+                egressGib = meter.egress_gib,
+                storageGib = meter.storage_gib,
             );
         }
     }
