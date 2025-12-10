@@ -175,6 +175,7 @@ pub mod http_client;
 #[cfg(feature = "http-server")]
 pub mod http_server;
 pub mod js;
+pub mod meter;
 pub mod msg;
 pub mod obj;
 pub mod server;

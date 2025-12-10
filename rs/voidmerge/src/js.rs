@@ -162,6 +162,41 @@ impl JsExec for JsExecDefault {
     }
 }
 
+/// Javascript Executor Wrapper Adding Metering.
+pub struct JsExecMeter(pub DynJsExec);
+
+impl JsExecMeter {
+    /// Create a JsExecMeter wrapper around another javascript executor.
+    pub fn create(inner: DynJsExec) -> DynJsExec {
+        let out: DynJsExec = Arc::new(Self(inner));
+        out
+    }
+}
+
+impl JsExec for JsExecMeter {
+    fn exec(
+        &self,
+        setup: JsSetup,
+        request: JsRequest,
+    ) -> BoxFut<'_, Result<JsResponse>> {
+        Box::pin(async move {
+            let ctx = setup.ctx.clone();
+            let mem = setup.heap_size;
+
+            let start = std::time::Instant::now();
+            let res = self.0.exec(setup, request).await;
+            let elapsed_sec = start.elapsed().as_secs_f64();
+
+            crate::meter::meter_fn_gib_sec(
+                &ctx,
+                (mem as f64 / 1073741824.0) * elapsed_sec,
+            );
+
+            res
+        })
+    }
+}
+
 /// Javascript execution.
 struct Js {
     limit: Arc<tokio::sync::Semaphore>,

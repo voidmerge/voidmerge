@@ -305,11 +305,20 @@ impl Server {
         let prefix =
             format!("{}/{}/{prefix}", crate::obj::ObjMeta::SYS_CTX, ctx);
 
-        self.runtime
+        let res = self
+            .runtime
             .runtime()
             .obj()?
             .list(&prefix, created_gt, limit)
-            .await
+            .await;
+
+        if let Ok(meta_list) = &res {
+            let sum: usize = meta_list.iter().map(|m| m.len()).sum();
+
+            crate::meter::meter_egress_gib(&ctx, sum as f64 / 1073741824.0);
+        }
+
+        res
     }
 
     /// Get an item from the object store.
@@ -324,7 +333,16 @@ impl Server {
         let meta =
             crate::obj::ObjMeta::new_context(&ctx, &app_path, 0.0, 0.0, 0.0);
 
-        self.runtime.runtime().obj()?.get(meta).await
+        let res = self.runtime.runtime().obj()?.get(meta).await;
+
+        if let Ok((meta, data)) = &res {
+            crate::meter::meter_egress_gib(
+                &ctx,
+                (meta.len() + data.len()) as f64 / 1073741824.0,
+            );
+        }
+
+        res
     }
 
     /// Put an item into the object store.
@@ -387,6 +405,23 @@ impl Server {
             }
             Some(c) => c.clone(),
         };
-        c.fn_req(req).await
+
+        let res = c.fn_req(req).await;
+
+        use crate::js::JsResponse::FnResOk;
+        if let Ok(FnResOk { body, headers, .. }) = &res {
+            let mut egress_gib = body.len();
+            for (k, v) in headers {
+                egress_gib += k.len();
+                egress_gib += v.len();
+            }
+
+            crate::meter::meter_egress_gib(
+                &ctx,
+                egress_gib as f64 / 1073741824.0,
+            );
+        }
+
+        res
     }
 }

@@ -42,6 +42,7 @@ impl ObjFile {
         let out = Arc::new_cyclic(|this: &std::sync::Weak<ObjFile>| {
             let this = this.clone();
             let task = tokio::task::spawn(async move {
+                let mut last_meter = std::time::Instant::now();
                 loop {
                     tokio::time::sleep(std::time::Duration::from_secs(10))
                         .await;
@@ -49,6 +50,19 @@ impl ObjFile {
                         let path_list = this.inner.lock().unwrap().prune();
                         for path in path_list {
                             destroy(path).await;
+                        }
+
+                        let now = std::time::Instant::now();
+                        if now - last_meter > std::time::Duration::from_secs(60)
+                        {
+                            last_meter = now;
+                            let map = this.inner.lock().unwrap().meter();
+                            for (ctx, storage) in map {
+                                crate::meter::meter_storage_gib(
+                                    &ctx,
+                                    storage as f64 / 1073741824.0,
+                                );
+                            }
                         }
                     } else {
                         return;
@@ -291,6 +305,17 @@ struct Inner(OrderMap<Item>);
 impl Inner {
     pub fn new() -> Self {
         Self(OrderMap::default())
+    }
+
+    pub fn meter(&self) -> HashMap<Arc<str>, u64> {
+        let mut map: HashMap<Arc<str>, u64> = Default::default();
+        for Item { meta, .. } in self.0.iter(f64::MIN, f64::MAX) {
+            if meta.sys_prefix() != ObjMeta::SYS_CTX {
+                continue;
+            }
+            *map.entry(meta.ctx().into()).or_default() += meta.byte_length();
+        }
+        map
     }
 
     pub fn prune(&mut self) -> Vec<std::path::PathBuf> {
