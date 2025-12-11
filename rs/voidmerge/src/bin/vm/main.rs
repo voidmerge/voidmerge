@@ -231,8 +231,8 @@ fn arg_parse() -> Result<Arg> {
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<()> {
-    use tracing_subscriber::prelude::*;
     use opentelemetry_otlp::WithExportConfig;
+    use tracing_subscriber::prelude::*;
 
     // -- logging -- //
 
@@ -251,8 +251,7 @@ async fn main() -> Result<()> {
         .build()
         .expect("initialize otel logging exporter");
 
-    let provider =
-        opentelemetry_sdk::logs::SdkLoggerProvider::builder()
+    let provider = opentelemetry_sdk::logs::SdkLoggerProvider::builder()
         .with_batch_exporter(log_exporter)
         .build();
 
@@ -275,9 +274,10 @@ async fn main() -> Result<()> {
         .build()
         .expect("initialize otel metrics exporter");
 
-    let meter_provider = opentelemetry_sdk::metrics::SdkMeterProvider::builder()
-        .with_periodic_exporter(exporter)
-        .build();
+    let meter_provider =
+        opentelemetry_sdk::metrics::SdkMeterProvider::builder()
+            .with_periodic_exporter(exporter)
+            .build();
 
     opentelemetry::global::set_meter_provider(meter_provider.clone());
 

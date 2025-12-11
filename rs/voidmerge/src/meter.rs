@@ -13,17 +13,14 @@ impl Default for OtelMeters {
     fn default() -> Self {
         let meter = opentelemetry::global::meter("vm");
 
-        let fn_gib_sec = meter.f64_counter("vm.fn")
-            .with_unit("GiB-Sec")
-            .build();
+        let fn_gib_sec =
+            meter.f64_counter("vm.fn").with_unit("GiB-Sec").build();
 
-        let egress_gib = meter.f64_counter("vm.egress")
-            .with_unit("GiB")
-            .build();
+        let egress_gib =
+            meter.f64_counter("vm.egress").with_unit("GiB").build();
 
-        let storage_gib = meter.f64_gauge("vm.obj.storage")
-            .with_unit("GiB")
-            .build();
+        let storage_gib =
+            meter.f64_gauge("vm.obj.storage").with_unit("GiB").build();
 
         Self {
             fn_gib_sec,
@@ -69,25 +66,28 @@ pub fn meter_init() {
 
 /// Increment the egress usage for a context.
 pub fn meter_egress_gib(ctx: &Arc<str>, egress_gib: f64) {
-    otel().egress_gib.add(egress_gib, &[
-        opentelemetry::KeyValue::new("ctx", ctx.to_string()),
-    ]);
+    otel().egress_gib.add(
+        egress_gib,
+        &[opentelemetry::KeyValue::new("ctx", ctx.to_string())],
+    );
     meter_ctx!(ctx).egress_gib += egress_gib;
 }
 
 /// Increment the fn memory*duration usage for a context.
 pub fn meter_fn_gib_sec(ctx: &Arc<str>, fn_gib_sec: f64) {
-    otel().fn_gib_sec.add(fn_gib_sec, &[
-        opentelemetry::KeyValue::new("ctx", ctx.to_string()),
-    ]);
+    otel().fn_gib_sec.add(
+        fn_gib_sec,
+        &[opentelemetry::KeyValue::new("ctx", ctx.to_string())],
+    );
     meter_ctx!(ctx).fn_gib_sec += fn_gib_sec;
 }
 
 /// Set the current storage size for a context.
 pub fn meter_storage_gib(ctx: &Arc<str>, storage_gib: f64) {
-    otel().storage_gib.record(storage_gib, &[
-        opentelemetry::KeyValue::new("ctx", ctx.to_string()),
-    ]);
+    otel().storage_gib.record(
+        storage_gib,
+        &[opentelemetry::KeyValue::new("ctx", ctx.to_string())],
+    );
     meter_ctx!(ctx).storage_gib = storage_gib;
 }
 
