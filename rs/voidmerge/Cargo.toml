@@ -20,6 +20,10 @@ deno_core = { workspace = true }
 futures = { workspace = true, optional = true }
 hyper = { workspace = true }
 minimist = { workspace = true, optional = true }
+opentelemetry = { workspace = true, features = ["logs"], optional = true }
+opentelemetry-otlp = { workspace = true, features = ["logs"], optional = true }
+opentelemetry_sdk = { workspace = true, features = ["logs"], optional = true }
+opentelemetry-appender-tracing = {  workspace = true, optional = true }
 rand = { workspace = true }
 reqwest = { workspace = true }
 rmp-serde = { workspace = true }
@@ -46,7 +50,7 @@ default = [ "http-server", "cli" ]
 http-server = [ "dep:axum", "dep:axum-server", "dep:futures", "dep:tower-http" ]
 
 # The cli tool.
-cli = [ "dep:minimist", "tokio/full", "dep:tracing-subscriber", "dep:zip" ]
+cli = [ "tokio/full", "dep:minimist", "dep:opentelemetry", "dep:opentelemetry-otlp", "dep:opentelemetry_sdk", "dep:opentelemetry-appender-tracing", "dep:tracing-subscriber", "dep:zip" ]
 
 [package.metadata.docs.rs]
 all-features = true

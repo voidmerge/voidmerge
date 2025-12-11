@@ -231,22 +231,59 @@ fn arg_parse() -> Result<Arg> {
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<()> {
-    tracing::subscriber::set_global_default(
-        tracing_subscriber::FmtSubscriber::builder()
-            .with_env_filter(
-                tracing_subscriber::EnvFilter::builder()
-                    .with_env_var("VM_LOG")
-                    .with_default_directive(
-                        tracing_subscriber::filter::LevelFilter::INFO.into(),
-                    )
-                    .from_env_lossy(),
-            )
-            .json()
-            .finish(),
-    )
-    .unwrap();
+    use opentelemetry_otlp::WithExportConfig;
+    use tracing_subscriber::prelude::*;
+
+    // -- logging -- //
+
+    let filter_layer = tracing_subscriber::EnvFilter::builder()
+        .with_env_var("VM_LOG")
+        .with_default_directive(
+            tracing_subscriber::filter::LevelFilter::INFO.into(),
+        )
+        .from_env_lossy();
+
+    let fmt_layer = tracing_subscriber::fmt::layer().json();
+
+    let log_exporter = opentelemetry_otlp::LogExporter::builder()
+        .with_http()
+        .with_protocol(opentelemetry_otlp::Protocol::HttpBinary)
+        .build()
+        .expect("initialize otel logging exporter");
+
+    let provider = opentelemetry_sdk::logs::SdkLoggerProvider::builder()
+        .with_batch_exporter(log_exporter)
+        .build();
+
+    let otel_layer =
+        opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge::new(
+            &provider,
+        );
+
+    tracing_subscriber::Registry::default()
+        .with(filter_layer)
+        .with(fmt_layer)
+        .with(otel_layer)
+        .init();
+
+    // -- metrics -- //
+
+    let exporter = opentelemetry_otlp::MetricExporter::builder()
+        .with_http()
+        .with_protocol(opentelemetry_otlp::Protocol::HttpBinary)
+        .build()
+        .expect("initialize otel metrics exporter");
+
+    let meter_provider =
+        opentelemetry_sdk::metrics::SdkMeterProvider::builder()
+            .with_periodic_exporter(exporter)
+            .build();
+
+    opentelemetry::global::set_meter_provider(meter_provider.clone());
 
     voidmerge::meter::meter_init();
+
+    // -- arguments -- //
 
     let arg = match arg_parse() {
         Ok(arg) => arg,
