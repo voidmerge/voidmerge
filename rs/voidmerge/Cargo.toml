@@ -21,9 +21,9 @@ futures = { workspace = true, optional = true }
 hyper = { workspace = true }
 minimist = { workspace = true, optional = true }
 opentelemetry = { workspace = true, features = ["logs"], optional = true }
+opentelemetry-appender-tracing = {  workspace = true, optional = true }
 opentelemetry-otlp = { workspace = true, features = ["logs"], optional = true }
 opentelemetry_sdk = { workspace = true, features = ["logs"], optional = true }
-opentelemetry-appender-tracing = {  workspace = true, optional = true }
 rand = { workspace = true }
 reqwest = { workspace = true }
 rmp-serde = { workspace = true }
@@ -31,6 +31,7 @@ rustyscript = { version = "0.12.3", default-features = false, features = ["web_s
 serde = { workspace = true, features = [ "derive", "rc" ] }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
+sysinfo = { workspace = true, optional = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = [ "sync", "fs", "rt", "io-util" ] }
 tower-http = { workspace = true, optional = true, features = [ "cors" ] }
@@ -50,7 +51,7 @@ default = [ "http-server", "cli" ]
 http-server = [ "dep:axum", "dep:axum-server", "dep:futures", "dep:tower-http" ]
 
 # The cli tool.
-cli = [ "tokio/full", "dep:minimist", "dep:opentelemetry", "dep:opentelemetry-otlp", "dep:opentelemetry_sdk", "dep:opentelemetry-appender-tracing", "dep:tracing-subscriber", "dep:zip" ]
+cli = [ "tokio/full", "dep:minimist", "dep:opentelemetry", "dep:opentelemetry-otlp", "dep:opentelemetry_sdk", "dep:opentelemetry-appender-tracing", "dep:sysinfo", "dep:tracing-subscriber", "dep:zip" ]
 
 [package.metadata.docs.rs]
 all-features = true

@@ -277,6 +277,7 @@ async fn main() -> Result<()> {
     let meter_provider =
         opentelemetry_sdk::metrics::SdkMeterProvider::builder()
             .with_periodic_exporter(exporter)
+            .with_resource(opentelemetry_sdk::Resource::builder().build())
             .build();
 
     opentelemetry::global::set_meter_provider(meter_provider.clone());
