@@ -245,42 +245,47 @@ async fn main() -> Result<()> {
 
     let fmt_layer = tracing_subscriber::fmt::layer().json();
 
-    let log_exporter = opentelemetry_otlp::LogExporter::builder()
-        .with_http()
-        .with_protocol(opentelemetry_otlp::Protocol::HttpBinary)
-        .build()
-        .expect("initialize otel logging exporter");
-
-    let provider = opentelemetry_sdk::logs::SdkLoggerProvider::builder()
-        .with_batch_exporter(log_exporter)
-        .build();
-
-    let otel_layer =
-        opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge::new(
-            &provider,
-        );
-
-    tracing_subscriber::Registry::default()
+    let sub = tracing_subscriber::Registry::default()
         .with(filter_layer)
-        .with(fmt_layer)
-        .with(otel_layer)
-        .init();
+        .with(fmt_layer);
+
+    if std::env::var_os("OTEL_EXPORTER_OTLP_ENDPOINT").is_some() {
+        let log_exporter = opentelemetry_otlp::LogExporter::builder()
+            .with_http()
+            .with_protocol(opentelemetry_otlp::Protocol::HttpBinary)
+            .build()
+            .expect("initialize otel logging exporter");
+
+        let provider = opentelemetry_sdk::logs::SdkLoggerProvider::builder()
+            .with_batch_exporter(log_exporter)
+            .build();
+
+        let otel_layer =
+            opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge::new(
+                &provider,
+            );
+        sub.with(otel_layer).init();
+    } else {
+        sub.init();
+    }
 
     // -- metrics -- //
 
-    let exporter = opentelemetry_otlp::MetricExporter::builder()
-        .with_http()
-        .with_protocol(opentelemetry_otlp::Protocol::HttpBinary)
-        .build()
-        .expect("initialize otel metrics exporter");
+    if std::env::var_os("OTEL_EXPORTER_OTLP_ENDPOINT").is_some() {
+        let exporter = opentelemetry_otlp::MetricExporter::builder()
+            .with_http()
+            .with_protocol(opentelemetry_otlp::Protocol::HttpBinary)
+            .build()
+            .expect("initialize otel metrics exporter");
 
-    let meter_provider =
-        opentelemetry_sdk::metrics::SdkMeterProvider::builder()
-            .with_periodic_exporter(exporter)
-            .with_resource(opentelemetry_sdk::Resource::builder().build())
-            .build();
+        let meter_provider =
+            opentelemetry_sdk::metrics::SdkMeterProvider::builder()
+                .with_periodic_exporter(exporter)
+                .with_resource(opentelemetry_sdk::Resource::builder().build())
+                .build();
 
-    opentelemetry::global::set_meter_provider(meter_provider.clone());
+        opentelemetry::global::set_meter_provider(meter_provider.clone());
+    }
 
     voidmerge::meter::meter_init();
 

@@ -109,9 +109,9 @@ fn sys() -> &'static Mutex<Sys> {
 }
 
 struct OtelMeters {
-    fn_gib_sec: opentelemetry::metrics::Counter<f64>,
-    egress_gib: opentelemetry::metrics::Counter<f64>,
-    storage_gib: opentelemetry::metrics::Gauge<f64>,
+    egress_byte: opentelemetry::metrics::Counter<f64>,
+    fn_mib_milli: opentelemetry::metrics::Counter<f64>,
+    obj_store_byte_min: opentelemetry::metrics::Counter<f64>,
 
     _mem_avail_byte: opentelemetry::metrics::ObservableGauge<u64>,
     _mem_used_byte: opentelemetry::metrics::ObservableGauge<u64>,
@@ -127,21 +127,21 @@ impl Default for OtelMeters {
     fn default() -> Self {
         let meter = opentelemetry::global::meter("vm");
 
-        let fn_gib_sec = meter
-            .f64_counter("vm.fn")
-            .with_unit("GiB-Sec")
-            .with_description("Function call memory * duration")
-            .build();
-
-        let egress_gib = meter
+        let egress_byte = meter
             .f64_counter("vm.egress")
-            .with_unit("GiB")
+            .with_unit("byte")
             .with_description("Egress data transfer")
             .build();
 
-        let storage_gib = meter
-            .f64_gauge("vm.obj.storage")
-            .with_unit("GiB")
+        let fn_mib_milli = meter
+            .f64_counter("vm.fn")
+            .with_unit("mib-milli")
+            .with_description("Function call memory * duration")
+            .build();
+
+        let obj_store_byte_min = meter
+            .f64_counter("vm.obj.storage")
+            .with_unit("byte-min")
             .with_description("Object storage")
             .build();
 
@@ -200,9 +200,9 @@ impl Default for OtelMeters {
             .build();
 
         Self {
-            fn_gib_sec,
-            egress_gib,
-            storage_gib,
+            egress_byte,
+            fn_mib_milli,
+            obj_store_byte_min,
             _mem_avail_byte,
             _mem_used_byte,
             _mem_total_byte,
@@ -221,9 +221,9 @@ fn otel() -> &'static OtelMeters {
 #[derive(Debug, Default, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Agg {
-    fn_gib_sec: f64,
-    egress_gib: f64,
-    storage_gib: f64,
+    egress_byte: u128,
+    fn_mib_milli: u128,
+    obj_store_byte_min: u128,
 }
 
 type AggMap = HashMap<Arc<str>, Agg>;
@@ -247,31 +247,53 @@ pub fn meter_init() {
     tokio::task::spawn(init_meter_task());
 }
 
+/// Hook for receiving meter updates.
+pub type MeterHook = Arc<dyn Fn(&Arc<str>, &'static str, u128) + 'static + Send + Sync>;
+
+static HOOKS: OnceLock<Mutex<Vec<MeterHook>>> = OnceLock::new();
+fn hooks() -> &'static Mutex<Vec<MeterHook>> {
+    HOOKS.get_or_init(Default::default)
+}
+fn hook_trigger(ctx: &Arc<str>, meter: &'static str, value: u128) {
+    let hooks = hooks().lock().unwrap().clone();
+    for hook in hooks {
+        hook(ctx, meter, value);
+    }
+}
+
+/// Register a hook for receiving meter updates.
+pub fn meter_register_hook(hook: MeterHook) {
+    hooks().lock().unwrap().push(hook);
+}
+
 /// Increment the egress usage for a context.
-pub fn meter_egress_gib(ctx: &Arc<str>, egress_gib: f64) {
-    otel().egress_gib.add(
-        egress_gib,
+pub fn meter_egress_byte(ctx: &Arc<str>, egress_byte: u128) {
+    otel().egress_byte.add(
+        egress_byte as f64,
         &[opentelemetry::KeyValue::new("ctx", ctx.to_string())],
     );
-    meter_ctx!(ctx).egress_gib += egress_gib;
+    meter_ctx!(ctx).egress_byte += egress_byte;
+    hook_trigger(ctx, "egress_byte", egress_byte);
 }
 
 /// Increment the fn memory*duration usage for a context.
-pub fn meter_fn_gib_sec(ctx: &Arc<str>, fn_gib_sec: f64) {
-    otel().fn_gib_sec.add(
-        fn_gib_sec,
+pub fn meter_fn_mib_milli(ctx: &Arc<str>, fn_mib_milli: u128) {
+    otel().fn_mib_milli.add(
+        fn_mib_milli as f64,
         &[opentelemetry::KeyValue::new("ctx", ctx.to_string())],
     );
-    meter_ctx!(ctx).fn_gib_sec += fn_gib_sec;
+    meter_ctx!(ctx).fn_mib_milli += fn_mib_milli;
+    hook_trigger(ctx, "fn_mib_milli", fn_mib_milli);
 }
 
 /// Set the current storage size for a context.
-pub fn meter_storage_gib(ctx: &Arc<str>, storage_gib: f64) {
-    otel().storage_gib.record(
-        storage_gib,
+pub fn meter_obj_store_byte_min(ctx: &Arc<str>, obj_store_byte_min: u128) {
+    otel().obj_store_byte_min.add(
+        obj_store_byte_min as f64,
         &[opentelemetry::KeyValue::new("ctx", ctx.to_string())],
     );
-    meter_ctx!(ctx).storage_gib = storage_gib;
+    meter_ctx!(ctx).obj_store_byte_min += obj_store_byte_min;
+    hook_trigger(ctx, "obj_store_byte_min", obj_store_byte_min);
 }
 
 async fn init_meter_task() {
@@ -284,9 +306,9 @@ async fn init_meter_task() {
             tracing::info!(
                 target: "METER",
                 %ctx,
-                fnGibSec = meter.fn_gib_sec,
-                egressGib = meter.egress_gib,
-                storageGib = meter.storage_gib,
+                egress_byte = meter.egress_byte as f64,
+                fn_mib_milli = meter.fn_mib_milli as f64,
+                obj_store_byte_min = meter.obj_store_byte_min as f64,
             );
         }
     }

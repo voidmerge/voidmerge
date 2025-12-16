@@ -185,11 +185,15 @@ impl JsExec for JsExecMeter {
 
             let start = std::time::Instant::now();
             let res = self.0.exec(setup, request).await;
-            let elapsed_sec = start.elapsed().as_secs_f64();
+            let mut elapsed_millis = start.elapsed().as_millis();
 
-            crate::meter::meter_fn_gib_sec(
+            if elapsed_millis < 100 {
+                elapsed_millis = 100;
+            }
+
+            crate::meter::meter_fn_mib_milli(
                 &ctx,
-                (mem as f64 / 1073741824.0) * elapsed_sec,
+                (mem as u128 * elapsed_millis) / 1048576,
             );
 
             res
