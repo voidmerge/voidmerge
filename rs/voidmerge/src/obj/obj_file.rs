@@ -53,14 +53,15 @@ impl ObjFile {
                         }
 
                         let now = std::time::Instant::now();
-                        if now - last_meter > std::time::Duration::from_secs(60)
-                        {
+                        let diff_sec = (now - last_meter).as_secs_f64();
+                        if diff_sec > 60.0 {
                             last_meter = now;
+                            let diff_min = diff_sec / 60.0;
                             let map = this.inner.lock().unwrap().meter();
                             for (ctx, storage) in map {
-                                crate::meter::meter_storage_gib(
+                                crate::meter::meter_obj_store_byte_min(
                                     &ctx,
-                                    storage as f64 / 1073741824.0,
+                                    (storage as f64 * diff_min) as u128,
                                 );
                             }
                         }

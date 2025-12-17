@@ -315,7 +315,7 @@ impl Server {
         if let Ok(meta_list) = &res {
             let sum: usize = meta_list.iter().map(|m| m.len()).sum();
 
-            crate::meter::meter_egress_gib(&ctx, sum as f64 / 1073741824.0);
+            crate::meter::meter_egress_byte(&ctx, sum as u128);
         }
 
         res
@@ -336,9 +336,9 @@ impl Server {
         let res = self.runtime.runtime().obj()?.get(meta).await;
 
         if let Ok((meta, data)) = &res {
-            crate::meter::meter_egress_gib(
+            crate::meter::meter_egress_byte(
                 &ctx,
-                (meta.len() + data.len()) as f64 / 1073741824.0,
+                (meta.len() + data.len()) as u128,
             );
         }
 
@@ -416,10 +416,7 @@ impl Server {
                 egress_gib += v.len();
             }
 
-            crate::meter::meter_egress_gib(
-                &ctx,
-                egress_gib as f64 / 1073741824.0,
-            );
+            crate::meter::meter_egress_byte(&ctx, egress_gib as u128);
         }
 
         res
