@@ -248,7 +248,8 @@ pub fn meter_init() {
 }
 
 /// Hook for receiving meter updates.
-pub type MeterHook = Arc<dyn Fn(&Arc<str>, &'static str, u128) + 'static + Send + Sync>;
+pub type MeterHook =
+    Arc<dyn Fn(&Arc<str>, &'static str, u128) + 'static + Send + Sync>;
 
 static HOOKS: OnceLock<Mutex<Vec<MeterHook>>> = OnceLock::new();
 fn hooks() -> &'static Mutex<Vec<MeterHook>> {
