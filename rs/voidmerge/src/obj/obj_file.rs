@@ -1,13 +1,19 @@
 //! File-backed object store.
 
+use crate::memindex::*;
 use crate::obj::*;
-use std::collections::{BTreeMap, HashSet};
 use std::sync::Mutex;
+
+#[derive(Clone)]
+struct Info {
+    pub meta_path: std::path::PathBuf,
+    pub data_path: std::path::PathBuf,
+}
 
 /// File-backed object store.
 pub struct ObjFile {
     root: std::path::PathBuf,
-    inner: Mutex<Inner>,
+    index: Mutex<MemIndex<Info>>,
     task: tokio::task::AbortHandle,
     tempdir: Option<tempfile::TempDir>,
 }
@@ -47,17 +53,19 @@ impl ObjFile {
                     tokio::time::sleep(std::time::Duration::from_secs(10))
                         .await;
                     if let Some(this) = this.upgrade() {
-                        let path_list = this.inner.lock().unwrap().prune();
-                        for path in path_list {
-                            destroy(path).await;
-                        }
+                        let path_list = {
+                            let mut lock = this.index.lock().unwrap();
+                            lock.prune();
+                            lock.get_delete()
+                        };
+                        destroy(path_list).await;
 
                         let now = std::time::Instant::now();
                         let diff_sec = (now - last_meter).as_secs_f64();
                         if diff_sec > 60.0 {
                             last_meter = now;
                             let diff_min = diff_sec / 60.0;
-                            let map = this.inner.lock().unwrap().meter();
+                            let map = this.index.lock().unwrap().meter();
                             for (ctx, storage) in map {
                                 crate::meter::meter_obj_store_byte_min(
                                     &ctx,
@@ -73,7 +81,7 @@ impl ObjFile {
             .abort_handle();
             Self {
                 root,
-                inner: Mutex::new(Inner::new()),
+                index: Mutex::new(MemIndex::default()),
                 task,
                 tempdir,
             }
@@ -201,12 +209,19 @@ impl ObjFile {
             return Ok(());
         }
 
-        let d = self.inner.lock().unwrap().put(meta, meta_path, data_path);
+        let path_list = {
+            let mut lock = self.index.lock().unwrap();
+            lock.put(
+                meta,
+                Info {
+                    meta_path,
+                    data_path,
+                },
+            );
+            lock.get_delete()
+        };
 
-        if let Some((d1, d2)) = d {
-            destroy(d1).await;
-            destroy(d2).await;
-        }
+        destroy(path_list).await;
 
         Ok(())
     }
@@ -215,9 +230,8 @@ impl ObjFile {
 impl Obj for ObjFile {
     fn get(&self, path: Arc<str>) -> BoxFut<'_, Result<(Arc<str>, Bytes)>> {
         Box::pin(async move {
-            let (meta, data_path) =
-                self.inner.lock().unwrap().get(ObjMeta(path))?;
-            let data = tokio::fs::read(data_path).await?.into();
+            let (meta, info) = self.index.lock().unwrap().get(ObjMeta(path))?;
+            let data = tokio::fs::read(info.data_path).await?.into();
             Ok((meta.0, data))
         })
     }
@@ -230,7 +244,7 @@ impl Obj for ObjFile {
     ) -> BoxFut<'_, Result<Vec<Arc<str>>>> {
         Box::pin(async move {
             Ok(self
-                .inner
+                .index
                 .lock()
                 .unwrap()
                 .list(path_prefix, created_gt, limit))
@@ -277,242 +291,40 @@ impl Obj for ObjFile {
             tokio::fs::write(&data_path, data).await?;
 
             // finally if all the writes succeeded, update our map
-            let d = self.inner.lock().unwrap().put(meta, meta_path, data_path);
+            let path_list = {
+                let mut lock = self.index.lock().unwrap();
+                lock.put(
+                    meta,
+                    Info {
+                        meta_path,
+                        data_path,
+                    },
+                );
+                lock.get_delete()
+            };
 
-            if let Some((d1, d2)) = d {
-                destroy(d1).await;
-                destroy(d2).await;
-            }
+            destroy(path_list).await;
 
             Ok(())
         })
     }
 }
 
-async fn destroy(path: std::path::PathBuf) {
-    if let Err(err) = tokio::fs::remove_file(&path).await {
-        tracing::warn!(?err, "failed to remove object store path");
-    }
-}
-
-struct Item {
-    pub meta: ObjMeta,
-    pub meta_path: std::path::PathBuf,
-    pub data_path: std::path::PathBuf,
-}
-
-struct Inner(OrderMap<Item>);
-
-impl Inner {
-    pub fn new() -> Self {
-        Self(OrderMap::default())
-    }
-
-    pub fn meter(&self) -> HashMap<Arc<str>, u64> {
-        let mut map: HashMap<Arc<str>, u64> = Default::default();
-        for Item { meta, .. } in self.0.iter(f64::MIN, f64::MAX) {
-            if meta.sys_prefix() != ObjMeta::SYS_CTX {
-                continue;
-            }
-            *map.entry(meta.ctx().into()).or_default() += meta.byte_length();
-        }
-        map
-    }
-
-    pub fn prune(&mut self) -> Vec<std::path::PathBuf> {
-        let now = safe_now();
-        let mut destroy = Vec::new();
-        self.0.retain(|_, v| {
-            let x = v.meta.expires_secs();
-            if x == 0.0 || x > now {
-                true
-            } else {
-                destroy.push(v.meta_path.clone());
-                destroy.push(v.data_path.clone());
-                false
-            }
-        });
-        destroy
-    }
-
-    pub fn get(&self, meta: ObjMeta) -> Result<(ObjMeta, std::path::PathBuf)> {
-        let pfx = Pfx::new(&meta);
-        self.0
-            .get(&pfx)
-            .map(|item| (item.meta.clone(), item.data_path.clone()))
-            .ok_or_else(|| {
-                Error::not_found(format!("Could not locate meta: {meta}"))
-            })
-    }
-
-    pub fn list(
-        &self,
-        prefix: Arc<str>,
-        created_gt: f64,
-        limit: u32,
-    ) -> Vec<Arc<str>> {
-        let mut out = Vec::new();
-        let mut last_created_secs = 0.0;
-        for item in self.0.iter(created_gt, f64::MAX) {
-            let created_secs = item.meta.created_secs();
-            if out.len() >= limit as usize && created_secs > last_created_secs {
-                // in edge case of exactly matching created_secs, we may return
-                // more than the limit, but if we don't do this, the continue
-                // token will cause them to miss some items
-                return out;
-            }
-            last_created_secs = created_secs;
-            if created_secs > created_gt && item.meta.0.starts_with(&*prefix) {
-                out.push(item.meta.0.clone());
-            }
-        }
-        out
-    }
-
-    pub fn put(
-        &mut self,
-        meta: ObjMeta,
-        meta_path: std::path::PathBuf,
-        data_path: std::path::PathBuf,
-    ) -> Option<(std::path::PathBuf, std::path::PathBuf)> {
-        let now = safe_now();
-        let mx = meta.expires_secs();
-        if mx > 0.0 && mx < now {
-            return Some((meta_path, data_path));
-        }
-        let pfx = Pfx::new(&meta);
-        let item = Item {
-            meta,
+async fn destroy(list: Vec<(ObjMeta, Info)>) {
+    for (
+        _,
+        Info {
             meta_path,
             data_path,
-        };
-        let created_secs = item.meta.created_secs();
-        if let Some(orig_item) = self.0.insert(created_secs, pfx, item) {
-            let ox = orig_item.meta.expires_secs();
-            if ox > 0.0 && ox < now {
-                return Some((orig_item.meta_path, orig_item.data_path));
-            }
-            let orig_created_secs = orig_item.meta.created_secs();
-            if orig_created_secs >= created_secs {
-                // woops, put it back
-                if let Some(item) = self.0.insert(
-                    orig_created_secs,
-                    Pfx::new(&orig_item.meta),
-                    orig_item,
-                ) {
-                    return Some((item.meta_path, item.data_path));
-                }
-            } else {
-                return Some((orig_item.meta_path, orig_item.data_path));
-            }
-        }
-        None
-    }
-}
-
-#[derive(Clone, Copy)]
-struct Order(f64);
-
-impl PartialEq for Order {
-    fn eq(&self, other: &Self) -> bool {
-        self.cmp(other) == std::cmp::Ordering::Equal
-    }
-}
-
-impl Eq for Order {}
-
-impl PartialOrd for Order {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for Order {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.0.total_cmp(&other.0)
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-struct Pfx(Arc<str>);
-
-impl Pfx {
-    pub fn new(meta: &ObjMeta) -> Self {
-        Self(format!(
-            "{}/{}/{}",
-            meta.sys_prefix(),
-            meta.ctx(),
-            meta.app_path(),
-        ).into())
-    }
-}
-
-struct OrderMap<T> {
-    map: HashMap<Pfx, (Order, T)>,
-    order: BTreeMap<Order, HashSet<Pfx>>,
-}
-
-impl<T> Default for OrderMap<T> {
-    fn default() -> Self {
-        Self {
-            map: Default::default(),
-            order: Default::default(),
-        }
-    }
-}
-
-impl<T> OrderMap<T> {
-    pub fn retain<F>(&mut self, mut f: F)
-    where
-        F: FnMut(&Pfx, &T) -> bool,
+        },
+    ) in list
     {
-        let mut remove = Vec::new();
-        for (pfx, (_, t)) in self.map.iter() {
-            if !f(pfx, t) {
-                remove.push(pfx.clone());
-            }
+        if let Err(err) = tokio::fs::remove_file(&meta_path).await {
+            tracing::warn!(?err, "failed to remove object store path");
         }
-        for pfx in remove {
-            self.remove(&pfx);
+        if let Err(err) = tokio::fs::remove_file(&data_path).await {
+            tracing::warn!(?err, "failed to remove object store path");
         }
-    }
-
-    pub fn remove(&mut self, pfx: &Pfx) -> Option<T> {
-        if let Some((order, t)) = self.map.remove(pfx) {
-            let mut remove = false;
-            if let Some(set) = self.order.get_mut(&order) {
-                set.remove(pfx);
-                if set.is_empty() {
-                    remove = true;
-                }
-            }
-            if remove {
-                self.order.remove(&order);
-            }
-            Some(t)
-        } else {
-            None
-        }
-    }
-
-    pub fn insert(&mut self, order: f64, pfx: Pfx, val: T) -> Option<T> {
-        let out = self.remove(&pfx);
-        let order = Order(order);
-        self.map.insert(pfx.clone(), (order, val));
-        self.order.entry(order).or_default().insert(pfx);
-        out
-    }
-
-    pub fn get(&self, pfx: &Pfx) -> Option<&T> {
-        self.map.get(pfx).map(|v| &v.1)
-    }
-
-    pub fn iter(&self, start: f64, end: f64) -> impl Iterator<Item = &T> {
-        self.order
-            .range(Order(start)..Order(end))
-            .flat_map(|(_, set)| {
-                set.iter().filter_map(|pfx| self.map.get(pfx).map(|v| &v.1))
-            })
     }
 }
 
