@@ -8,6 +8,7 @@ test:
 	npm ci
 	cargo fmt -- --check
 	cargo clippy --locked -- -D warnings
+	cargo run --manifest-path ./rs/voidmerge/Cargo.toml
 	RUSTFLAGS="-D warnings" cargo test --locked --all-features
 	(cd rs/voidmerge/ && cargo rdme --force)
 	npm test
