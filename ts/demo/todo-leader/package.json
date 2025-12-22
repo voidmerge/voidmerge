@@ -9,8 +9,8 @@
   },
   "dependencies": {
     "@noble/ed25519": "^3.0.0",
-    "@voidmerge/voidmerge-client": "^0.0.13",
-    "@voidmerge/voidmerge-code": "^0.0.13"
+    "@voidmerge/voidmerge-client": "^0.0.14",
+    "@voidmerge/voidmerge-code": "^0.0.14"
   },
   "devDependencies": {
     "base64-js": "^1.5.1"

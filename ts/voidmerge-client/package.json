@@ -1,6 +1,6 @@
 {
   "name": "@voidmerge/voidmerge-client",
-  "version": "0.0.13",
+  "version": "0.0.14",
   "description": "VoidMerge: The open-source, developer friendly web services platform.",
   "license": "(MIT or Apache-2.0)",
   "main": "./dist/index.js",

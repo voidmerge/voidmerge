@@ -17,6 +17,7 @@
 pub mod error;
 pub use error::{Error, ErrorExt, Result};
 use std::sync::{Arc, Weak};
+pub mod memindex;
 
 /// A boxed future.
 pub type BoxFut<'lt, T> =
