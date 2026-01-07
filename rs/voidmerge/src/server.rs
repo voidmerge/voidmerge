@@ -71,6 +71,11 @@ impl CtxSetup {
         for token in self.ctx_admin.iter() {
             safe_str(token)?;
         }
+        if self.max_heap_bytes < 1024 * 1024
+            || self.max_heap_bytes / (1024 * 1024) > u32::MAX as usize
+        {
+            return Err(Error::other("invalid max heap bytes"));
+        }
         Ok(())
     }
 }
