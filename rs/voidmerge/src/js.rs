@@ -79,13 +79,24 @@ pub enum JsResponse {
 
 static MAX_THREADS: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
 
-/// Set the max thread count. (Default: 512).
+/// Set the max thread count. (Default: 32).
 pub fn js_global_set_max_thread(count: usize) -> bool {
     MAX_THREADS.set(count).is_ok()
 }
 
 fn js_global_get_max_thread() -> usize {
-    *MAX_THREADS.get_or_init(|| 512)
+    *MAX_THREADS.get_or_init(|| 32)
+}
+
+static MAX_RAM: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+
+/// Set max RAM to use. (Default: 768 MiB).
+pub fn js_global_set_max_ram(count: usize) -> bool {
+    MAX_RAM.set(count).is_ok()
+}
+
+fn js_global_get_max_ram() -> usize {
+    *MAX_RAM.get_or_init(|| 768 * 1024 * 1024)
 }
 
 /// Javascript setup info.
@@ -203,15 +214,25 @@ impl JsExec for JsExecMeter {
 
 /// Javascript execution.
 struct Js {
-    limit: Arc<tokio::sync::Semaphore>,
+    thread_limit: Arc<tokio::sync::Semaphore>,
+    ram_mib_limit: Arc<tokio::sync::Semaphore>,
     pool: Arc<Mutex<JsPool>>,
 }
 
 impl Js {
     pub fn new() -> Self {
         let max_threads = js_global_get_max_thread();
+        let max_ram = js_global_get_max_ram();
+        if max_ram < 1024 * 1024 {
+            panic!("max ram cannot be less that 1MiB");
+        }
+        let max_ram_mib = max_ram / (1024 * 1024);
+        if max_ram_mib > u32::MAX as usize {
+            panic!("max ram is too large in MiB for a u32");
+        }
         Self {
-            limit: Arc::new(tokio::sync::Semaphore::new(max_threads)),
+            thread_limit: Arc::new(tokio::sync::Semaphore::new(max_threads)),
+            ram_mib_limit: Arc::new(tokio::sync::Semaphore::new(max_ram_mib)),
             pool: Arc::new(Mutex::new(JsPool::new(max_threads))),
         }
     }
@@ -225,19 +246,25 @@ impl Js {
         let mut found = self.pool.lock().unwrap().get_thread(&setup);
 
         if found.is_none() {
-            let permit = self
-                .limit
-                .clone()
-                .acquire_owned()
-                .await
-                .expect("permit error");
+            let t_fut = self.thread_limit.clone().acquire_owned();
 
-            found = Some(
-                self.pool
-                    .lock()
-                    .unwrap()
-                    .get_or_create_thread(permit, &setup),
-            );
+            if setup.heap_size < 1024 * 1024 {
+                panic!("heap_size cannot be less than 1 MiB");
+            }
+
+            let r_fut = self
+                .ram_mib_limit
+                .clone()
+                .acquire_many_owned((setup.heap_size / (1024 * 1024)) as u32);
+
+            let (thread_permit, ram_permit) =
+                tokio::try_join!(t_fut, r_fut).expect("permit error");
+
+            found = Some(self.pool.lock().unwrap().get_or_create_thread(
+                thread_permit,
+                ram_permit,
+                &setup,
+            ));
         }
 
         let thread = found.unwrap();
@@ -305,12 +332,13 @@ impl JsPool {
 
     pub fn get_or_create_thread(
         &mut self,
-        permit: tokio::sync::OwnedSemaphorePermit,
+        thread_permit: tokio::sync::OwnedSemaphorePermit,
+        ram_permit: tokio::sync::OwnedSemaphorePermit,
         setup: &JsSetup,
     ) -> JsThread {
         match self.get_thread(setup) {
             Some(thread) => thread,
-            None => JsThread::new(permit),
+            None => JsThread::new(thread_permit, ram_permit),
         }
     }
 
@@ -694,7 +722,8 @@ enum Cmd {
 }
 
 struct JsThread {
-    _permit: tokio::sync::OwnedSemaphorePermit,
+    _thread_permit: tokio::sync::OwnedSemaphorePermit,
+    _ram_permit: tokio::sync::OwnedSemaphorePermit,
     is_ready: Arc<std::sync::atomic::AtomicBool>,
     thread: Option<std::thread::JoinHandle<()>>,
     cmd_send: Option<tokio::sync::mpsc::Sender<Cmd>>,
@@ -742,7 +771,10 @@ impl JsThread {
         r.await.map_err(|_| std::io::Error::other("thread error"))?
     }
 
-    pub fn new(permit: tokio::sync::OwnedSemaphorePermit) -> Self {
+    pub fn new(
+        thread_permit: tokio::sync::OwnedSemaphorePermit,
+        ram_permit: tokio::sync::OwnedSemaphorePermit,
+    ) -> Self {
         let is_ready = Arc::new(std::sync::atomic::AtomicBool::new(true));
 
         struct D(Arc<std::sync::atomic::AtomicBool>);
@@ -874,7 +906,8 @@ impl JsThread {
         });
         Self {
             is_ready,
-            _permit: permit,
+            _thread_permit: thread_permit,
+            _ram_permit: ram_permit,
             thread: Some(thread),
             cmd_send: Some(cmd_send),
         }
