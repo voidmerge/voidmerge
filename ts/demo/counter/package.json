@@ -8,6 +8,6 @@
     "start": "npm run build && vm test --code-file dist/bundle-counter.js"
   },
   "dependencies": {
-    "@voidmerge/voidmerge-code": "^0.0.15"
+    "@voidmerge/voidmerge-code": "^0.0.16"
   }
 }
