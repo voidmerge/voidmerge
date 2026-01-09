@@ -10,6 +10,7 @@ test:
 	cargo clippy --locked -- -D warnings
 	cargo run --manifest-path ./rs/voidmerge/Cargo.toml
 	RUSTFLAGS="-D warnings" cargo test --locked --all-features
+	RUSTFLAGS="-D warnings" cargo test --locked --all-features -- --ignored js_stress --nocapture
 	(cd rs/voidmerge/ && cargo rdme --force)
 	npm test
 

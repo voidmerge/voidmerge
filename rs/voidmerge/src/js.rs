@@ -243,7 +243,10 @@ impl Js {
         request: JsRequest,
         weak: WeakJsExec,
     ) -> Result<JsResponse> {
-        let mut found = self.pool.lock().unwrap().get_thread(&setup);
+        let avail = self.ram_mib_limit.available_permits() * 1024 * 1024;
+        let want = setup.heap_size;
+        let clear = want.saturating_sub(avail);
+        let mut found = self.pool.lock().unwrap().get_thread(&setup, clear);
 
         if found.is_none() {
             let t_fut = self.thread_limit.clone().acquire_owned();
@@ -271,7 +274,9 @@ impl Js {
 
         let out = thread.exec(setup.clone(), request, weak).await;
 
-        if thread.is_ready() {
+        // if the thread errored, don't return it
+        // if we are out of permits, don't return it
+        if thread.is_ready() && self.ram_mib_limit.available_permits() > 0 {
             self.pool.lock().unwrap().put_thread(setup, thread);
         }
 
@@ -280,6 +285,7 @@ impl Js {
 }
 
 struct JsPool {
+    #[allow(dead_code)]
     max_threads: usize,
     last_prune: std::time::Instant,
     threads: HashMap<JsSetup, Vec<JsThread>>,
@@ -294,13 +300,17 @@ impl JsPool {
         }
     }
 
-    pub fn get_thread(&mut self, want_setup: &JsSetup) -> Option<JsThread> {
+    pub fn get_thread(
+        &mut self,
+        want_setup: &JsSetup,
+        clear_heap: usize,
+    ) -> Option<JsThread> {
         if self.last_prune.elapsed() > std::time::Duration::from_secs(5) {
             self.last_prune = std::time::Instant::now();
             self.threads.retain(|_, list| !list.is_empty());
         }
 
-        // first try for a setup match
+        // if we have a matching thread cached, return it
         if let Some(list) = self.threads.get_mut(want_setup) {
             while !list.is_empty() {
                 let thread = list.remove(0);
@@ -310,22 +320,19 @@ impl JsPool {
             }
         }
 
-        let count = self.threads.values().map(|list| list.len()).sum::<usize>();
-
-        if count < self.max_threads - 2 {
-            // go ahead and make a new thread, we've got space
-            return None;
-        }
-
-        // then, just get any (would be good to introduce some lru here)
-        for (_, list) in self.threads.iter_mut() {
-            while !list.is_empty() {
-                let thread = list.remove(0);
-                if thread.is_ready() {
-                    return Some(thread);
+        // otherwise, try to clear enough space for the request
+        let mut clear_amount = 0;
+        self.threads.retain(|setup, list| {
+            list.retain(|_| {
+                if clear_amount < clear_heap {
+                    clear_amount += setup.heap_size;
+                    false
+                } else {
+                    true
                 }
-            }
-        }
+            });
+            !list.is_empty()
+        });
 
         None
     }
@@ -336,7 +343,9 @@ impl JsPool {
         ram_permit: tokio::sync::OwnedSemaphorePermit,
         setup: &JsSetup,
     ) -> JsThread {
-        match self.get_thread(setup) {
+        // we can set a clear heap size of zero here,
+        // since we already got the permit.
+        match self.get_thread(setup, 0) {
             Some(thread) => thread,
             None => JsThread::new(thread_permit, ram_permit),
         }
@@ -708,8 +717,6 @@ mod deno_ext {
     );
 }
 
-//rustyscript::deno_core::extension!(
-
 #[allow(clippy::large_enum_variant)]
 enum Cmd {
     Kill,
@@ -917,6 +924,71 @@ impl JsThread {
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[ignore = "Run this test in isolation via `cargo test -- --ignored js_stress`"]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn js_stress() {
+        let rth = RuntimeHandle::default();
+        let obj = obj::obj_file::ObjFile::create(None).await.unwrap();
+        rth.set_obj(obj);
+
+        fn setup(id: usize, runtime: Runtime) -> JsSetup {
+            JsSetup {
+                runtime,
+                ctx: format!("ctx-{id}").into(),
+                env: Arc::new(serde_json::Value::Null),
+                code: format!(
+                    "
+async function vm(req) {{
+    if (req.type === 'fnReq') {{
+        const body = (new TextEncoder()).encode('{id}')
+        return {{ type: 'fnResOk', body }};
+    }}
+    throw new Error('unhandled');
+}}
+"
+                )
+                .into(),
+                timeout: JsSetup::DEF_TIMEOUT,
+                heap_size: JsSetup::DEF_HEAP_SIZE * 5,
+            }
+        }
+
+        const COUNT: usize = 64;
+
+        let mut setups = Vec::with_capacity(COUNT);
+        for id in 0..COUNT {
+            setups.push(setup(id, rth.runtime()));
+        }
+
+        let js = JsExecDefault::create();
+
+        let req = JsRequest::FnReq {
+            method: "GET".into(),
+            path: "".into(),
+            body: None,
+            headers: Default::default(),
+        };
+
+        for r in 1..=10 {
+            println!("round {r}/10");
+            let mut all = Vec::with_capacity(COUNT);
+            for id in 0..COUNT {
+                all.push(js.exec(setups[id].clone(), req.clone()));
+            }
+            let res = futures::future::try_join_all(all).await.unwrap();
+            assert_eq!(COUNT, res.len());
+            for id in 0..COUNT {
+                match &res[id] {
+                    JsResponse::FnResOk { body, .. } => {
+                        let body = String::from_utf8_lossy(body);
+                        assert_eq!(id.to_string(), body);
+                    }
+                    oth => panic!("unexpected result: {oth:?}"),
+                }
+            }
+        }
+    }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn js_simple() {
