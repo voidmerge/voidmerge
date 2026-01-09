@@ -925,6 +925,71 @@ impl JsThread {
 mod test {
     use super::*;
 
+    #[ignore = "Run this test in isolation via `cargo test -- --ignored js_stress`"]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn js_stress() {
+        let rth = RuntimeHandle::default();
+        let obj = obj::obj_file::ObjFile::create(None).await.unwrap();
+        rth.set_obj(obj);
+
+        fn setup(id: usize, runtime: Runtime) -> JsSetup {
+            JsSetup {
+                runtime,
+                ctx: format!("ctx-{id}").into(),
+                env: Arc::new(serde_json::Value::Null),
+                code: format!(
+                    "
+async function vm(req) {{
+    if (req.type === 'fnReq') {{
+        const body = (new TextEncoder()).encode('{id}')
+        return {{ type: 'fnResOk', body }};
+    }}
+    throw new Error('unhandled');
+}}
+"
+                )
+                .into(),
+                timeout: JsSetup::DEF_TIMEOUT,
+                heap_size: JsSetup::DEF_HEAP_SIZE * 5,
+            }
+        }
+
+        const COUNT: usize = 64;
+
+        let mut setups = Vec::with_capacity(COUNT);
+        for id in 0..COUNT {
+            setups.push(setup(id, rth.runtime()));
+        }
+
+        let js = JsExecDefault::create();
+
+        let req = JsRequest::FnReq {
+            method: "GET".into(),
+            path: "".into(),
+            body: None,
+            headers: Default::default(),
+        };
+
+        for r in 1..=10 {
+            println!("round {r}/10");
+            let mut all = Vec::with_capacity(COUNT);
+            for id in 0..COUNT {
+                all.push(js.exec(setups[id].clone(), req.clone()));
+            }
+            let res = futures::future::try_join_all(all).await.unwrap();
+            assert_eq!(COUNT, res.len());
+            for id in 0..COUNT {
+                match &res[id] {
+                    JsResponse::FnResOk { body, .. } => {
+                        let body = String::from_utf8_lossy(body);
+                        assert_eq!(id.to_string(), body);
+                    }
+                    oth => panic!("unexpected result: {oth:?}"),
+                }
+            }
+        }
+    }
+
     #[tokio::test(flavor = "multi_thread")]
     async fn js_simple() {
         let rth = RuntimeHandle::default();
