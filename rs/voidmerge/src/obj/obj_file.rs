@@ -236,6 +236,19 @@ impl Obj for ObjFile {
         })
     }
 
+    fn rm(&self, path: Arc<str>) -> BoxFut<'_, Result<()>> {
+        Box::pin(async move {
+            let path_list = {
+                let mut lock = self.index.lock().unwrap();
+                lock.rm(ObjMeta(path));
+                lock.get_delete()
+            };
+
+            destroy(path_list).await;
+            Ok(())
+        })
+    }
+
     fn list(
         &self,
         path_prefix: Arc<str>,

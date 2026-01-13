@@ -12,6 +12,12 @@ pub trait Obj: 'static + Send + Sync {
     /// Get an object by path from the store.
     fn get(&self, path: Arc<str>) -> BoxFut<'_, Result<(Arc<str>, Bytes)>>;
 
+    /// Delete an object by path from the store.
+    /// Note, this is may not be compatible with sharding or backup/restore,
+    /// i.e. objects could become resurrected.
+    /// Consider tombstoning or otherwise ensure revalidation will fail.
+    fn rm(&self, path: Arc<str>) -> BoxFut<'_, Result<()>>;
+
     /// List objects in the store by path prefix.
     fn list(
         &self,
@@ -190,6 +196,14 @@ impl ObjWrap {
             .get(meta.0)
             .await
             .map(|(meta, data)| (ObjMeta(meta), data))
+    }
+
+    /// Delete an object by path from the store.
+    /// Note, this is may not be compatible with sharding or backup/restore,
+    /// i.e. objects could become resurrected.
+    /// Consider tombstoning or otherwise ensure revalidation will fail.
+    pub async fn rm(&self, meta: ObjMeta) -> Result<()> {
+        self.inner.rm(meta.0).await
     }
 
     /// List objects in the store.

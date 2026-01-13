@@ -45,6 +45,10 @@ VM.defineVoidMergeHandler(async (req) => {
         meta: VM.ObjMeta.fromFull(pReq.k),
       });
       res.val = new TextDecoder().decode(data);
+    } else if (pReq.do === "rm") {
+      await VM.objRm({
+        meta: VM.ObjMeta.fromFull(pReq.k),
+      });
     }
 
     return new VM.ResponseFnOk({

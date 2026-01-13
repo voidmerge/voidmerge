@@ -63,6 +63,14 @@ impl<Info: Clone> MemIndex<Info> {
         })
     }
 
+    /// Remove an index from the list.
+    pub fn rm(&mut self, meta: ObjMeta) {
+        let pfx = Pfx::new(&meta);
+        if let Some((meta, info)) = self.map.remove(&pfx) {
+            self.delete.push((meta, info));
+        }
+    }
+
     /// List items in the index.
     pub fn list(
         &self,
