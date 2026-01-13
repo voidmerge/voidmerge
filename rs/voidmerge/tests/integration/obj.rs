@@ -22,6 +22,55 @@ async fn obj_simple() {
     let r1: R1 = test
         .test_fn_req(serde_json::json!({
             "do": "put",
+            "k": "alice",
+            "v": "hello",
+        }))
+        .await
+        .unwrap();
+
+    println!("put result (orig alice): {r1:?}");
+
+    let orig_alice = r1.meta;
+
+    let r1: R1 = test
+        .test_fn_req(serde_json::json!({
+            "do": "put",
+            "k": "alice",
+            "v": "hello",
+        }))
+        .await
+        .unwrap();
+    println!("put result (second alice): {r1:?}");
+
+    #[derive(Debug, serde::Deserialize)]
+    struct R0 {}
+
+    test.test_fn_req::<R0>(serde_json::json!({
+        "do": "rm",
+        "k": orig_alice,
+    }))
+    .await
+    .unwrap();
+
+    #[derive(Debug, serde::Deserialize)]
+    struct R2 {
+        list: Vec<String>,
+    }
+
+    let r2: R2 = test
+        .test_fn_req(serde_json::json!({
+            "do": "list",
+            "k": "a",
+        }))
+        .await
+        .unwrap();
+
+    println!("list result: {r2:?}");
+    assert_eq!(0, r2.list.len());
+
+    let r1: R1 = test
+        .test_fn_req(serde_json::json!({
+            "do": "put",
             "k": "bob",
             "v": "hello",
         }))
@@ -29,11 +78,6 @@ async fn obj_simple() {
         .unwrap();
 
     println!("put result: {r1:?}");
-
-    #[derive(Debug, serde::Deserialize)]
-    struct R2 {
-        list: Vec<String>,
-    }
 
     let r2: R2 = test
         .test_fn_req(serde_json::json!({

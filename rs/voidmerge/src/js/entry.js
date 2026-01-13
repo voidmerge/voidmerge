@@ -49,5 +49,6 @@ globalThis.VM = {
   msgSend: vm.op_msg_send,
   objPut: vm.op_obj_put,
   objGet: vm.op_obj_get,
+  objRm: vm.op_obj_rm,
   objList: vm.op_obj_list
 };

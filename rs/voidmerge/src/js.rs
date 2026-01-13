@@ -636,6 +636,49 @@ mod deno_ext {
         Ok(ObjGetOutput { meta: meta.0, data })
     }
 
+    #[derive(Debug, serde::Deserialize)]
+    struct ObjRmInput {
+        #[serde(default)]
+        meta: Arc<str>,
+    }
+
+    #[deno_core::op2(async)]
+    async fn op_obj_rm(
+        state: Rc<RefCell<OpState>>,
+        #[serde] input: ObjRmInput,
+    ) -> std::result::Result<(), deno_core::error::CoreError> {
+        let setup = match state.borrow().try_borrow::<TState>() {
+            Some(TState { setup, .. }) => setup.clone(),
+            _ => {
+                return Err(deno_core::error::CoreErrorKind::Io(Error::other(
+                    "bad state",
+                ))
+                .into());
+            }
+        };
+
+        let meta = crate::obj::ObjMeta(input.meta);
+        if meta.sys_prefix() != crate::obj::ObjMeta::SYS_CTX {
+            return Err(deno_core::error::CoreErrorKind::Io(Error::other(
+                "invalid sys prefix",
+            ))
+            .into());
+        }
+        if meta.ctx() != &*setup.ctx {
+            return Err(deno_core::error::CoreErrorKind::Io(Error::other(
+                "invalid sys context",
+            ))
+            .into());
+        }
+        setup.runtime.obj()?.rm(meta).await.map_err(|err| {
+            deno_core::error::CoreError::from(
+                deno_core::error::CoreErrorKind::Io(err),
+            )
+        })?;
+
+        Ok(())
+    }
+
     fn f64_1000() -> f64 {
         1000.0
     }
@@ -710,6 +753,7 @@ mod deno_ext {
             op_msg_send,
             op_obj_put,
             op_obj_get,
+            op_obj_rm,
             op_obj_list,
         ],
         esm_entry_point = "ext:vm/entry.js",

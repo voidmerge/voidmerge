@@ -48,6 +48,9 @@ export function checkTestSetup() {
         }
         throw new Error("not found");
       },
+      async objRm(input: { meta: string }): Promise<void> {
+        delete STORE[input.meta];
+      },
     };
   }
 }

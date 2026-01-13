@@ -35,6 +35,7 @@ interface GlobalVM {
     limit: number;
   }): Promise<{ metaList: string[] }>;
   objGet(input: { meta: string }): Promise<{ meta: string; data: Uint8Array }>;
+  objRm(input: { meta: string }): Promise<void>;
 }
 
 // define types / functions provided by the vm system
@@ -404,4 +405,16 @@ export async function objGet(input: {
     meta: input.meta.fullPath(),
   });
   return { meta: ObjMeta.fromFull(meta), data };
+}
+
+/**
+ * Delete an object by path from the store.
+ * Note, this is may not be compatible with sharding or backup/restore,
+ * i.e. objects could become resurrected.
+ * Consider tombstoning or otherwise ensure revalidation will fail.
+ */
+export async function objRm(input: { meta: ObjMeta }): Promise<void> {
+  await globalThis.VM.objRm({
+    meta: input.meta.fullPath(),
+  });
 }

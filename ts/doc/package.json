@@ -11,7 +11,7 @@
     "test": "npm test --include-workspace-root -w"
   },
   "dependencies": {
-    "@voidmerge/voidmerge-client": "^0.0.16",
-    "@voidmerge/voidmerge-code": "^0.0.16"
+    "@voidmerge/voidmerge-client": "^0.0.17",
+    "@voidmerge/voidmerge-code": "^0.0.17"
   }
 }
