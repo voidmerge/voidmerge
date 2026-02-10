@@ -783,15 +783,35 @@ struct JsThread {
 impl Drop for JsThread {
     fn drop(&mut self) {
         let cmd_send = self.cmd_send.take();
-        tokio::task::spawn(async move {
-            if let Some(cmd_send) = cmd_send {
-                let _ = cmd_send.send(Cmd::Kill).await;
-            }
-        });
-        if let Some(thread) = self.thread.take() {
-            tokio::task::spawn_blocking(move || {
-                let _ = thread.join();
+        if tokio::runtime::Handle::try_current().is_ok() {
+            tokio::task::spawn(async move {
+                if let Some(cmd_send) = cmd_send {
+                    let _ = cmd_send.send(Cmd::Kill).await;
+                }
             });
+            if let Some(thread) = self.thread.take() {
+                tokio::task::spawn_blocking(move || {
+                    let _ = thread.join();
+                });
+            }
+        } else {
+            let mut dangle = false;
+            if let Some(cmd_send) = cmd_send
+                && cmd_send.try_send(Cmd::Kill).is_err()
+            {
+                eprintln!(
+                    "FAILED TO SEND KILL, maybe leaving a thread dangling"
+                );
+                tracing::error!(
+                    "FAILED TO SEND KILL, maybe leaving a thread dangling"
+                );
+                dangle = true;
+            }
+            if let Some(thread) = self.thread.take()
+                && !dangle
+            {
+                let _ = thread.join();
+            }
         }
     }
 }
