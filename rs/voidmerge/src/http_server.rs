@@ -123,12 +123,9 @@ pub async fn http_server(
             "/{ctx}/_vm_/obj-put/{*path}",
             axum::routing::put(route_ctx_obj_put),
         )
-        .route("/{ctx}/{*path}", axum::routing::get(route_fn_get))
-        .route("/{ctx}/", axum::routing::get(route_fn_get_def))
-        .route("/{ctx}", axum::routing::get(route_fn_get_def))
-        .route("/{ctx}/{*path}", axum::routing::put(route_fn_put))
-        .route("/{ctx}/", axum::routing::put(route_fn_put_def))
-        .route("/{ctx}", axum::routing::put(route_fn_put_def));
+        .route("/{ctx}/{*path}", axum::routing::any(route_fn))
+        .route("/{ctx}/", axum::routing::any(route_fn_def))
+        .route("/{ctx}", axum::routing::any(route_fn_def));
 
     let app = app
         .layer(cors)
@@ -420,41 +417,9 @@ fn hdr(m: &axum::http::HeaderMap) -> std::collections::HashMap<String, String> {
         .collect()
 }
 
-async fn route_fn_get(
-    headers: axum::http::HeaderMap,
-    axum::extract::Path((ctx, path)): axum::extract::Path<(String, String)>,
-    axum::extract::ConnectInfo(_addr): axum::extract::ConnectInfo<
-        std::net::SocketAddr,
-    >,
-    axum::extract::State(state): axum::extract::State<Arc<State>>,
-) -> AxumResult {
-    let req = crate::js::JsRequest::FnReq {
-        method: "GET".into(),
-        path,
-        body: None,
-        headers: hdr(&headers),
-    };
-    Ok(state.server.fn_req(ctx.into(), req).await?.into_response())
-}
-
-async fn route_fn_get_def(
-    headers: axum::http::HeaderMap,
-    axum::extract::Path(ctx): axum::extract::Path<String>,
-    axum::extract::ConnectInfo(_addr): axum::extract::ConnectInfo<
-        std::net::SocketAddr,
-    >,
-    axum::extract::State(state): axum::extract::State<Arc<State>>,
-) -> AxumResult {
-    let req = crate::js::JsRequest::FnReq {
-        method: "GET".into(),
-        path: "".into(),
-        body: None,
-        headers: hdr(&headers),
-    };
-    Ok(state.server.fn_req(ctx.into(), req).await?.into_response())
-}
-
-async fn route_fn_put(
+#[axum::debug_handler]
+async fn route_fn(
+    method: axum::http::Method,
     headers: axum::http::HeaderMap,
     axum::extract::Path((ctx, path)): axum::extract::Path<(String, String)>,
     axum::extract::ConnectInfo(_addr): axum::extract::ConnectInfo<
@@ -463,16 +428,23 @@ async fn route_fn_put(
     axum::extract::State(state): axum::extract::State<Arc<State>>,
     payload: bytes::Bytes,
 ) -> AxumResult {
+    let body = if payload.is_empty() {
+        None
+    } else {
+        Some(payload)
+    };
     let req = crate::js::JsRequest::FnReq {
-        method: "PUT".into(),
+        method: method.as_str().into(),
         path,
-        body: Some(payload),
+        body,
         headers: hdr(&headers),
     };
     Ok(state.server.fn_req(ctx.into(), req).await?.into_response())
 }
 
-async fn route_fn_put_def(
+#[axum::debug_handler]
+async fn route_fn_def(
+    method: axum::http::Method,
     headers: axum::http::HeaderMap,
     axum::extract::Path(ctx): axum::extract::Path<String>,
     axum::extract::ConnectInfo(_addr): axum::extract::ConnectInfo<
@@ -481,10 +453,15 @@ async fn route_fn_put_def(
     axum::extract::State(state): axum::extract::State<Arc<State>>,
     payload: bytes::Bytes,
 ) -> AxumResult {
+    let body = if payload.is_empty() {
+        None
+    } else {
+        Some(payload)
+    };
     let req = crate::js::JsRequest::FnReq {
-        method: "PUT".into(),
+        method: method.as_str().into(),
         path: "".into(),
-        body: Some(payload),
+        body,
         headers: hdr(&headers),
     };
     Ok(state.server.fn_req(ctx.into(), req).await?.into_response())

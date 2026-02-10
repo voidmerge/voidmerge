@@ -17,7 +17,7 @@ axum-server = { workspace = true, optional = true }
 base64 = { workspace = true }
 bytes = { workspace = true, features = [ "serde" ] }
 deno_core = { workspace = true }
-futures = { workspace = true, optional = true }
+futures = { workspace = true }
 hyper = { workspace = true }
 minimist = { workspace = true, optional = true }
 opentelemetry = { workspace = true, features = ["logs"], optional = true }
@@ -48,7 +48,7 @@ xshell = { workspace = true }
 default = [ "http-server", "cli" ]
 
 # The http server types.
-http-server = [ "dep:axum", "dep:axum-server", "dep:futures", "dep:tower-http" ]
+http-server = [ "dep:axum", "dep:axum-server", "dep:tower-http" ]
 
 # The cli tool.
 cli = [ "tokio/full", "dep:minimist", "dep:opentelemetry", "dep:opentelemetry-otlp", "dep:opentelemetry_sdk", "dep:opentelemetry-appender-tracing", "dep:sysinfo", "dep:tracing-subscriber", "dep:zip" ]
