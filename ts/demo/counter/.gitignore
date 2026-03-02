@@ -1,0 +1,2 @@
+publish-*.bash
+!publish-example.bash
