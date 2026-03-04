@@ -81,7 +81,7 @@ impl CtxSetup {
 }
 
 /// Context config information.
-#[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CtxConfig {
     /// The context identifier.
     #[serde(rename = "c", default, skip_serializing_if = "p_no")]
@@ -102,6 +102,17 @@ pub struct CtxConfig {
         skip_serializing_if = "serde_json::Value::is_null"
     )]
     pub code_env: Arc<serde_json::Value>,
+}
+
+impl std::fmt::Debug for CtxConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CtxConfig")
+            .field("ctx", &self.ctx)
+            .field("ctx_admin", &self.ctx_admin)
+            .field("code_bytes", &self.code.len())
+            .field("code_env", &self.code_env)
+            .finish()
+    }
 }
 
 impl CtxConfig {
@@ -221,6 +232,7 @@ impl Server {
 
     /// A general health check that is not context-specific.
     pub async fn health_get(&self) -> Result<()> {
+        tracing::trace!(request = "health_get");
         Ok(())
     }
 
@@ -247,6 +259,8 @@ impl Server {
             r.0 = setup;
             (ctx, r.clone())
         };
+
+        tracing::trace!(request = "ctx_setup", ?ctx_setup, ?ctx_config);
 
         self.setup_context(ctx, ctx_setup, ctx_config).await?;
 
@@ -277,6 +291,8 @@ impl Server {
             (ctx, r.clone())
         };
 
+        tracing::trace!(request = "ctx_config", ?ctx_setup, ?ctx_config);
+
         self.setup_context(ctx, ctx_setup, ctx_config).await?;
 
         Ok(())
@@ -288,6 +304,8 @@ impl Server {
         ctx: Arc<str>,
         msg_id: Arc<str>,
     ) -> Option<crate::msg::DynMsgRecv> {
+        tracing::trace!(request = "msg_listen", ?ctx, ?msg_id);
+
         self.runtime
             .runtime()
             .msg()
@@ -309,6 +327,14 @@ impl Server {
 
         let prefix =
             format!("{}/{}/{prefix}", crate::obj::ObjMeta::SYS_CTX, ctx);
+
+        tracing::trace!(
+            request = "obj_list",
+            ?ctx,
+            ?prefix,
+            ?created_gt,
+            ?limit
+        );
 
         let res = self
             .runtime
@@ -337,6 +363,8 @@ impl Server {
 
         let meta =
             crate::obj::ObjMeta::new_context(&ctx, &app_path, 0.0, 0.0, 0.0);
+
+        tracing::trace!(request = "obj_get", ?ctx, ?meta);
 
         let res = self.runtime.runtime().obj()?.get(meta).await;
 
@@ -377,6 +405,8 @@ impl Server {
             .into(),
         );
 
+        tracing::trace!(request = "obj_put", ?ctx, ?meta);
+
         let c = match self.ctx_map.lock().unwrap().get(&ctx) {
             None => {
                 return Err(Error::not_found(format!(
@@ -402,6 +432,8 @@ impl Server {
         ctx: Arc<str>,
         req: crate::js::JsRequest,
     ) -> Result<crate::js::JsResponse> {
+        tracing::trace!(request = "fn_req", ?ctx, ?req);
+
         let c = match self.ctx_map.lock().unwrap().get(&ctx) {
             None => {
                 return Err(Error::not_found(format!(

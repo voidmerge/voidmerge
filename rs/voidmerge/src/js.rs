@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 /// Input to a javascript execution.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 #[serde(
     tag = "type",
     rename_all = "camelCase",
@@ -36,6 +36,29 @@ pub enum JsRequest {
         /// Any sent headers.
         headers: HashMap<String, String>,
     },
+}
+
+impl std::fmt::Debug for JsRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::CodeConfigReq => {
+                f.debug_struct("JsRequest::CodeConfigReq").finish()
+            }
+            Self::CronReq => f.debug_struct("JsRequest::CronReq").finish(),
+            Self::ObjCheckReq { meta, .. } => f
+                .debug_struct("JsRequest::ObjCheckReq")
+                .field("meta", meta)
+                .finish(),
+            Self::FnReq {
+                method, path, body, ..
+            } => f
+                .debug_struct("JsRequest::FnReq")
+                .field("method", method)
+                .field("path", path)
+                .field("body_len", &body.as_ref().map(|b| b.len()).unwrap_or(0))
+                .finish(),
+        }
+    }
 }
 
 fn status() -> f64 {
@@ -911,6 +934,8 @@ impl JsThread {
                 }
 
                 loop {
+                    tracing::trace!(js_request = ?cur_request);
+
                     let res: Result<JsResponse> = match rust
                         .tokio_runtime()
                         .block_on(async {
@@ -940,11 +965,18 @@ impl JsThread {
                             } else {
                                 std::io::Error::other(err)
                             };
+                            tracing::debug!(
+                                ?err,
+                                "JS Processing Error, Aborting v8 isolate"
+                            );
                             on_drop.not_ready();
                             let _ = cur_output.send(Err(err));
                             return;
                         }
                         Err(_) => {
+                            tracing::debug!(
+                                "JS Timeout Error, Aborting v8 isolate"
+                            );
                             on_drop.not_ready();
                             let _ = cur_output
                                 .send(Err(std::io::Error::other("Timeout")));
