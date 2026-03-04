@@ -192,6 +192,8 @@ impl ObjWrap {
 impl ObjWrap {
     /// Get an object by metadata from the store.
     pub async fn get(&self, meta: ObjMeta) -> Result<(ObjMeta, Bytes)> {
+        tracing::trace!(request = "obj_get", ?meta);
+
         self.inner
             .get(meta.0)
             .await
@@ -203,6 +205,8 @@ impl ObjWrap {
     /// i.e. objects could become resurrected.
     /// Consider tombstoning or otherwise ensure revalidation will fail.
     pub async fn rm(&self, meta: ObjMeta) -> Result<()> {
+        tracing::trace!(request = "obj_rm", ?meta);
+
         self.inner.rm(meta.0).await
     }
 
@@ -213,6 +217,13 @@ impl ObjWrap {
         created_gt: f64,
         limit: u32,
     ) -> Result<Vec<ObjMeta>> {
+        tracing::trace!(
+            request = "obj_list",
+            ?path_prefix,
+            ?created_gt,
+            ?limit
+        );
+
         Ok(self
             .inner
             .list(path_prefix.into(), created_gt, limit)
@@ -224,6 +235,8 @@ impl ObjWrap {
 
     /// Put an object into the store.
     pub async fn put(&self, meta: ObjMeta, obj: Bytes) -> Result<()> {
+        tracing::trace!(request = "obj_put", ?meta, data_len = ?obj.len());
+
         safe_str(meta.app_path())
             .map_err(|err| err.with_info("invalid path"))?;
         self.inner.put(meta.0, obj).await
