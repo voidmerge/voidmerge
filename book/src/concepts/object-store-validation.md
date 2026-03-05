@@ -9,14 +9,12 @@ provides an opportunity to validate the data, and reject it if needed.
 ```ts
 import * as VM from "@voidmerge/voidmerge-code";
 
-VM.defineVoidMergeHandler(async (req) => {
-  if (req instanceof VM.RequestObjCheck) {
-    const data = new TextDecoder().decode(req.data);
-    if (data === "hello") {
-      return new VM.ResponseObjCheckOk();
-    } else {
-      throw new Error(`invalid data: ${data}`);
-    }
+VM.onObjCheck(async (req) => {
+  const data = new TextDecoder().decode(req.data);
+  if (data === "hello") {
+    return new VM.ResponseObjCheckOk();
+  } else {
+    throw new Error(`invalid data: ${data}`);
   }
 }
 ```
