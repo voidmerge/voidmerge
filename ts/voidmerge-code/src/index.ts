@@ -232,6 +232,8 @@ export type Request =
   | RequestObjCheck
   | RequestFn;
 
+const EMPTY = new Uint8Array(0);
+
 /**
  * Success response type for a function request.
  */
@@ -259,15 +261,64 @@ export class ResponseFnOk {
   /**
    * Construct a new FnOk response instance.
    */
-  constructor(input: {
+  constructor(input?: {
     status: number;
     body: Uint8Array;
     headers?: { [header: string]: string };
   }) {
-    this.status = input.status;
-    this.body = input.body;
-    this.headers = input.headers || {};
-    Object.freeze(this);
+    if (input) {
+      this.status = input.status;
+      this.body = input.body;
+      this.headers = input.headers || {};
+    } else {
+      this.status = 200;
+      this.body = EMPTY;
+      this.headers = {};
+    }
+  }
+
+  /**
+   * Set the status code.
+   */
+  withStatus(status: number): ResponseFnOk {
+    this.status = status;
+    return this;
+  }
+
+  /**
+   * Set the body.
+   */
+  withBody(body: Uint8Array): ResponseFnOk {
+    this.body = body;
+    return this;
+  }
+
+  /**
+   * Set text body content.
+   */
+  text(text: string): ResponseFnOk {
+    this.body = new TextEncoder().encode(text);
+    this.withHeader("content-type", "text/plain");
+    return this;
+  }
+
+  /**
+   * Set json body content.
+   */
+  json(json: any, pretty?: boolean): ResponseFnOk {
+    const p = pretty === true ? 2 : undefined;
+    const str = JSON.stringify(json, null, p);
+    this.body = new TextEncoder().encode(str);
+    this.withHeader("content-type", "application/json");
+    return this;
+  }
+
+  /**
+   * Set a header.
+   */
+  withHeader(key: string, val: string): ResponseFnOk {
+    this.headers[key] = val;
+    return this;
   }
 }
 
@@ -286,17 +337,120 @@ export type Response =
 export type VoidMergeHandler = (request: Request) => Promise<Response>;
 
 /**
- * Define a single global VoidMerge handler function.
- * Will error if called multiple times or if for any other reason a
- * vm handler function already exists.
+ * Handler type for {@link onCodeConfig}.
  */
-export function defineVoidMergeHandler(handler: VoidMergeHandler) {
-  if ("vm" in globalThis) {
-    throw new Error(
-      "global 'vm' function already defined, you can only define a single handler.",
+export type CodeConfigHandler = (
+  request: RequestCodeConfig,
+) => Promise<ResponseCodeConfigOk>;
+
+/**
+ * Handler type for {@link onCron}.
+ */
+export type CronHandler = (request: RequestCron) => Promise<ResponseCronOk>;
+
+/**
+ * Handler type for {@link onObjCheck}.
+ */
+export type ObjCheckHandler = (
+  request: RequestObjCheck,
+) => Promise<ResponseObjCheckOk>;
+
+/**
+ * Handler type for {@link onFn}.
+ */
+export type FnHandler = (request: RequestFn) => Promise<ResponseFnOk>;
+
+// default empty code config handler
+let __onCodeConfig: CodeConfigHandler = async (_req) => {
+  return new ResponseCodeConfigOk({});
+};
+
+// default empty cron handler
+let __onCron: CronHandler = async (_req) => {
+  return new ResponseCronOk();
+};
+
+// default empty obj check handler
+let __onObjCheck: ObjCheckHandler = async (_req) => {
+  return new ResponseObjCheckOk();
+};
+
+// default empty fn handler
+let __onFn: FnHandler = async (_req) => {
+  return new ResponseFnOk();
+};
+
+// Define the default handler that dispatches to individual handlers.
+globalThis.vm = async (req: VmRawReq) => {
+  const type = req.type;
+  if (req.type === "codeConfigReq") {
+    return await __onCodeConfig(new RequestCodeConfig());
+  } else if (req.type === "cronReq") {
+    return await __onCron(new RequestCron());
+  } else if (req.type === "objCheckReq") {
+    return await __onObjCheck(
+      new RequestObjCheck({
+        data: req.data,
+        meta: ObjMeta.fromFull(req.meta),
+      }),
+    );
+  } else if (req.type === "fnReq") {
+    return await __onFn(
+      new RequestFn({
+        method: req.method,
+        path: req.path,
+        headers: req.headers,
+        body: req.body,
+      }),
     );
   }
+  throw new Error(`invalid request type: ${type}`);
+};
 
+/**
+ * Define a code config handler if you would like to customize
+ * setting about your app such as the cron invocation interval.
+ */
+export function onCodeConfig(handler: CodeConfigHandler) {
+  __onCodeConfig = handler;
+}
+
+/**
+ * Define a handler for cron invocation.
+ *
+ * Note, this cron handler will only be called if you specify an interval
+ * in {@link onCodeConfig}.
+ */
+export function onCron(handler: CronHandler) {
+  __onCron = handler;
+}
+
+/**
+ * Define a check function for validating incoming objects to be stored.
+ */
+export function onObjCheck(handler: ObjCheckHandler) {
+  __onObjCheck = handler;
+}
+
+/**
+ * Define a function API invocation handler.
+ *
+ * This is the main interface for your Void Merge service code.
+ */
+export function onFn(handler: FnHandler) {
+  __onFn = handler;
+}
+
+/**
+ * DEPRECATED: Usage of this function directly is discouraged.
+ *             Consider using one of the more direct "on*" handlers.
+ *
+ * Define a single global VoidMerge handler function.
+ *
+ * Invoking this function will intercept calls that would have gone to
+ * on* handlers, so those will no longer function.
+ */
+export function defineVoidMergeHandler(handler: VoidMergeHandler) {
   // Define the handler with some translations for typescript type instances.
   globalThis.vm = async (req: VmRawReq) => {
     const type = req.type;
