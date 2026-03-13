@@ -5,6 +5,7 @@
   "workspaces": [
     "ts/demo/todo-leader",
     "ts/demo/counter",
+    "ts/demo/post-quantum",
     "ts/doc",
     "ts/test-integration",
     "ts/voidmerge-client",
@@ -29,7 +30,8 @@
     "build:bundle:test-integration": "esbuild --bundle ts/test-integration/src/obj-simple.ts --sourcemap --outfile=ts/test-integration/dist/bundle-obj-simple.js && esbuild --bundle ts/test-integration/src/msg-simple.ts --sourcemap --outfile=ts/test-integration/dist/bundle-msg-simple.js && esbuild --bundle ts/test-integration/src/cron-simple.ts --sourcemap --outfile=ts/test-integration/dist/bundle-cron-simple.js",
     "build:bundle:todo-leader": "esbuild --bundle ts/demo/todo-leader/src/todo-code.ts --minify --sourcemap --outfile=ts/demo/todo-leader/dist/bundle-todo-code.js",
     "build:bundle:counter": "esbuild --bundle ts/demo/counter/src/index.ts --minify --sourcemap --outfile=ts/demo/counter/dist/bundle-counter.js",
-    "build:bundle": "npm run build:bundle:test-integration && npm run build:bundle:todo-leader && npm run build:bundle:counter",
+    "build:bundle:post-quantum": "esbuild --bundle ts/demo/post-quantum/src/index.ts --minify --sourcemap --outfile=ts/demo/post-quantum/dist/bundle.js",
+    "build:bundle": "npm run build:bundle:test-integration && npm run build:bundle:todo-leader && npm run build:bundle:counter && npm run build:bundle:post-quantum",
     "build:gen": "npm run build:pretsc && npm run build:prebundle && node scripts/file-gen.js",
     "build": "npm run build:gen && npm run build:tsc && npm run build:bundle",
     "clean": "tsc --build --clean",
