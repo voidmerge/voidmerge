@@ -3,6 +3,7 @@
   "references": [
     { "path": "ts/demo/todo-leader" },
     { "path": "ts/demo/counter" },
+    { "path": "ts/demo/post-quantum" },
     { "path": "ts/doc" },
     { "path": "ts/test-integration" },
     { "path": "ts/voidmerge-client" },

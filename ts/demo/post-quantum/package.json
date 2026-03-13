@@ -1,0 +1,17 @@
+{
+  "name": "@voidmerge/post-quantum",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "npm run build --include-workspace-root -w",
+    "test": "npm test --include-workspace-root -w",
+    "start": "npm run build && vm test --code-file dist/bundle.js"
+  },
+  "dependencies": {
+    "@noble/curves": "^2.0.1",
+    "@noble/hashes": "^2.0.1",
+    "@noble/post-quantum": "^0.5.4",
+    "@voidmerge/voidmerge-code": "^0.0.20",
+    "base64-js": "^1.5.1"
+  }
+}
