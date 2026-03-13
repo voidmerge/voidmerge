@@ -40,7 +40,7 @@ class Server {
     this.#mSec = secretKey;
 
     // we calculate shared secret in loadRemotePubKey
-    this.#shared = '<unset>';
+    this.#shared = "<unset>";
   }
 
   pubKey(): Uint8Array<ArrayBuffer> {
@@ -131,7 +131,7 @@ VM.onFn(async (req) => {
     }
 
     // return the response
-    return new VM.ResponseFnOk().text(out.join('\r\n'));
+    return new VM.ResponseFnOk().text(out.join("\r\n"));
   } catch (e: any) {
     try {
       return new VM.ResponseFnOk()
