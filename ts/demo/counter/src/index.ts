@@ -43,8 +43,8 @@ async function increment(meta: VM.ObjMeta): Promise<number> {
 // Configure cron interval.
 VM.onCodeConfig(async (_req) => {
   return new VM.ResponseCodeConfigOk({
-    // have our cron function run every 10 seconds.
-    cronIntervalSecs: 10.0,
+    // have our cron function run every 60 seconds.
+    cronIntervalSecs: 60.0,
   });
 });
 
@@ -86,7 +86,7 @@ VM.onFn(async (req) => {
     const cronCount = await getCurrent(META_CRON);
 
     // generate display text
-    const output = `pageLoadCount: ${pageCount}\ncronTenSecondCount: ${cronCount}\n`;
+    const output = `pageLoadCount: ${pageCount}\ncronMinuteCount: ${cronCount}\n`;
 
     // return the response
     return new VM.ResponseFnOk().text(output);
