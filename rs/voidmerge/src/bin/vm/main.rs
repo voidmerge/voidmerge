@@ -582,7 +582,7 @@ impl Arg {
                     limit -= next_count;
                     let res = client
                         .obj_list(
-                            &url, &token, &context, &prefix, created_gt,
+                            &url, &context, &token, &prefix, created_gt,
                             next_count,
                         )
                         .await?;
@@ -610,7 +610,7 @@ impl Arg {
                 let client =
                     voidmerge::http_client::HttpClient::new(Default::default());
                 let (meta, data) =
-                    client.obj_get(&url, &token, &context, &app_path).await?;
+                    client.obj_get(&url, &context, &token, &app_path).await?;
                 eprintln!("#vm#meta#{meta}#");
                 use tokio::io::AsyncWriteExt;
                 tokio::io::stdout().write_all(&data).await?;
