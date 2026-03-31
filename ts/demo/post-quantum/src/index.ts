@@ -10,7 +10,7 @@ import { fromByteArray } from "base64-js";
  * BE AWARE: This is for example / educational purposes ONLY.
  *
  * Cryptography is highly vulnerable to subtle bugs and vulnerabilities
- * depending specific implementation. Please consult with a professional.
+ * depending on specific implementation. Please consult with a professional.
  */
 
 function concat(a: Uint8Array, b: Uint8Array): Uint8Array<ArrayBuffer> {
