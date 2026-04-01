@@ -16,7 +16,7 @@ serve                     : Run the VoidMerge HTTP server
 
 test                      : Run a test server (sysadmin: 'test', ctx: 'test')
   --http-addr <HTTP_ADDR> : Http server address to bind (env: VM_HTTP_ADDR=)
-                            (def: '[::]:8080')
+                            (def: '127.0.0.1:8080')
   --code-file <PATH>      : Javascript code for the context (env: VM_CODE=)
   --code-env  <PATH>      : Json string for ctx env metadata (env: VM_ENV=)
 

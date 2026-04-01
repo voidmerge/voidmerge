@@ -78,7 +78,7 @@ fn arg_parse() -> Result<Arg> {
         }
         "test" => {
             args.set_default_env("http-addr", "VM_HTTP_ADDR");
-            args.set_default("http-addr", "[::]:8080");
+            args.set_default("http-addr", "127.0.0.1:8080");
             args.set_default_env("code-file", "VM_CODE");
             args.set_default_env("code-env", "VM_ENV");
             Ok(Arg::Test {

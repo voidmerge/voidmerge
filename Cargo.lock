@@ -4640,6 +4640,7 @@ name = "voidmerge"
 version = "0.0.21"
 dependencies = [
  "async-walkdir",
+ "aws-lc-sys",
  "axum",
  "axum-server",
  "base64",
