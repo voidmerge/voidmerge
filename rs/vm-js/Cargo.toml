@@ -1,0 +1,32 @@
+[package]
+name = "vm-js"
+authors = ["Void Merge, LLC"]
+version = "0.0.1"
+edition = "2024"
+description = "Void Merge Javascript Engine."
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+documentation = "https://docs.rs/vm-js"
+repository = "https://github.com/voidmerge/voidmerge"
+keywords = [ "p2p", "verify", "verifiable" ]
+categories = [ "network-programming", "web-programming" ]
+
+# TODO delete this and local target dir once used in vm itself.
+[workspace]
+
+[dependencies]
+# TODO - dep issue, remove this once upstream is fixed
+temporal_rs = "=0.1.2"
+icu_calendar = "=2.1.0"
+
+# TODO - swap version to workspace once used in vm itself.
+deno_core = { version = "0.394.0" }
+deno_crypto = "0.255.0"
+deno_web = "0.272.0"
+deno_webidl = "0.241.0"
+serde = { version = "1.0.228", features = [ "derive" ] }
+tokio = { version = "1.50.0", features = [ "full" ] }
+thiserror = "2.0.18"
+
+[package.metadata.docs.rs]
+all-features = true
