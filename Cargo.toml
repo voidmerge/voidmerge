@@ -4,7 +4,7 @@ resolver = "3"
 
 [workspace.package]
 authors = ["Void Merge, LLC"]
-version = "0.0.21"
+version = "0.0.22"
 edition = "2024"
 
 [profile.release]
@@ -14,6 +14,7 @@ panic = "abort"
 panic = "abort"
 
 [workspace.dependencies]
+aws-lc-sys = "0.39.1"
 axum = "0.8"
 axum-server = "0.7"
 base64 = "0.22.1"

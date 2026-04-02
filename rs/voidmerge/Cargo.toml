@@ -12,6 +12,7 @@ keywords = [ "p2p", "verify", "verifiable" ]
 categories = [ "database", "database-implementations", "network-programming", "web-programming" ]
 
 [dependencies]
+aws-lc-sys = { workspace = true, features = [ "prebuilt-nasm" ] }
 axum = { workspace = true, optional = true, features = [ "macros", "ws" ] }
 axum-server = { workspace = true, optional = true }
 base64 = { workspace = true }
