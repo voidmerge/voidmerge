@@ -2,6 +2,9 @@ use crate::{JsError, JsResult};
 use JsError::*;
 use deno_core::v8;
 
+/// The timeout used for evaluating the setup code.
+const SETUP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
 pub type FnName = &'static str;
 
 pub enum Call<Input, Output> {
@@ -54,7 +57,7 @@ pub async fn js_thread_loop_async<Input, Output>(
     let mut js_runtime = deno_core::JsRuntime::new(deno_core::RuntimeOptions {
         create_params: Some(
             v8::CreateParams::default()
-                .heap_limits(1, config.max_mem_bytes)
+                .heap_limits(0, config.max_mem_bytes)
                 .array_buffer_allocator(ab_allocator),
         ),
         extensions: vec![
@@ -85,7 +88,7 @@ pub async fn js_thread_loop_async<Input, Output>(
         isolate_handle.terminate_execution();
 
         // we will terminate, but don't want a crash in the mean time
-        cur * 2
+        cur.saturating_mul(2)
     });
 
     // Set up call memory monitoring
@@ -115,7 +118,7 @@ pub async fn js_thread_loop_async<Input, Output>(
         if !did_setup {
             did_setup = true;
 
-            crate::monitor::set_timeout(mon_uniq, timeout);
+            crate::monitor::set_timeout(mon_uniq, SETUP_TIMEOUT);
 
             let res = js_runtime.execute_script("<setup>", config.code.clone());
 

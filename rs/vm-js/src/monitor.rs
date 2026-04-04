@@ -7,9 +7,9 @@ pub struct MonitorGuard(pub usize);
 
 impl Drop for MonitorGuard {
     fn drop(&mut self) {
-        if let Some(mon) = mon_map().remove(&self.0) {
+        let mon = mon_map().remove(&self.0);
+        if let Some(mon) = mon {
             mon.cancel.cancel();
-            mon.isolate_handle.terminate_execution();
         }
     }
 }
@@ -22,6 +22,7 @@ pub fn register_monitor(
     ab_bytes: Arc<std::sync::atomic::AtomicUsize>,
 ) -> MonitorGuard {
     let uniq = get_uniq();
+
     mon_map().insert(
         uniq,
         Arc::new(Monitor {
@@ -38,7 +39,8 @@ pub fn register_monitor(
 
 /// Set up a timeout for a javascript operation.
 pub fn set_timeout(mon_uniq: usize, timeout: std::time::Duration) {
-    if let Some(mon) = mon_map().get(&mon_uniq) {
+    let mon = mon_map().get(&mon_uniq).cloned();
+    if let Some(mon) = mon {
         *mon.timeout_at.lock().unwrap() =
             Some(std::time::Instant::now() + timeout);
     }
@@ -46,7 +48,8 @@ pub fn set_timeout(mon_uniq: usize, timeout: std::time::Duration) {
 
 /// Clear a javascript operation timeout.
 pub fn clear_timeout(mon_uniq: usize) {
-    if let Some(mon) = mon_map().get(&mon_uniq) {
+    let mon = mon_map().get(&mon_uniq).cloned();
+    if let Some(mon) = mon {
         *mon.timeout_at.lock().unwrap() = None;
     }
 }
@@ -65,6 +68,11 @@ struct Monitor {
     timeout_at: Mutex<Option<std::time::Instant>>,
 }
 
+/// Access the map containing active js threads to monitor.
+///
+/// Warning: Don't call this within a javascript execution context,
+///          and be sure to bind a `.cloned()` item, so the lock
+///          isn't held while executing operations.
 fn mon_map() -> std::sync::MutexGuard<'static, HashMap<usize, Arc<Monitor>>> {
     static MON_MAP: std::sync::OnceLock<
         std::sync::Mutex<HashMap<usize, Arc<Monitor>>>,
@@ -144,7 +152,7 @@ unsafe extern "C" fn mem_interrupt_cb(
     // finally check to see if we are over on our memory quota
     let stats = isolate.get_heap_statistics();
     let ab_used = mon.ab_bytes.load(std::sync::atomic::Ordering::Relaxed);
-    let total = stats.used_heap_size() + ab_used;
+    let total = stats.total_heap_size() + ab_used;
 
     if total > mon.max_mem_bytes {
         mon.cancel.cancel();

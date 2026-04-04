@@ -30,6 +30,8 @@ async fn sanity() {
     println!("s2: {}s", s2.elapsed().as_secs_f64());
 
     assert_eq!(100, res);
+
+    j.blocking_shutdown();
 }
 
 #[tokio::test]

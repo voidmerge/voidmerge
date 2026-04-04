@@ -57,9 +57,6 @@ pub struct VmJsConfig {
 
     /// The memory usage limit in bytes.
     pub max_mem_bytes: usize,
-
-    /// Idle thread shutdown duration.
-    pub idle_shutdown: std::time::Duration,
 }
 
 impl Default for VmJsConfig {
@@ -67,7 +64,6 @@ impl Default for VmJsConfig {
         Self {
             code: "".into(),
             max_mem_bytes: 1024 * 1024 * 32,
-            idle_shutdown: std::time::Duration::from_secs(120),
         }
     }
 }
@@ -79,7 +75,7 @@ where
     Output: 'static + Send + serde::de::DeserializeOwned,
 {
     cancel: tokio_util::sync::CancellationToken,
-    _thread: Option<std::thread::JoinHandle<()>>,
+    thread: Option<std::thread::JoinHandle<()>>,
     call_send: tokio::sync::mpsc::Sender<js_thread::Call<Input, Output>>,
 }
 
@@ -121,9 +117,17 @@ where
 
         Ok(VmJs {
             cancel,
-            _thread: Some(thread),
+            thread: Some(thread),
             call_send,
         })
+    }
+
+    /// Shut down the javascript engine, running a blocking join on the thread.
+    pub fn blocking_shutdown(mut self) {
+        self.cancel.cancel();
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
     }
 
     /// Call an async javascript function.

@@ -3,6 +3,11 @@ use std::ffi::c_void;
 use std::sync::Arc;
 use std::sync::atomic;
 
+/// alignment 8 could be overly permissive: V8's ArrayBuffer API
+/// doesn't require alignment stronger than 8 bytes for typed arrays,
+/// so this is fine in practice.
+const ALIGN: usize = 8;
+
 unsafe extern "C" fn ab_alloc_zeroed(
     handle: &atomic::AtomicUsize,
     len: usize,
@@ -10,7 +15,7 @@ unsafe extern "C" fn ab_alloc_zeroed(
     if len == 0 {
         return std::ptr::NonNull::<u8>::dangling().as_ptr().cast();
     }
-    let layout = match Layout::from_size_align(len, 8) {
+    let layout = match Layout::from_size_align(len, ALIGN) {
         Ok(l) => l,
         Err(_) => return std::ptr::null_mut(),
     };
@@ -28,7 +33,7 @@ unsafe extern "C" fn ab_alloc_uninit(
     if len == 0 {
         return std::ptr::NonNull::<u8>::dangling().as_ptr().cast();
     }
-    let layout = match Layout::from_size_align(len, 8) {
+    let layout = match Layout::from_size_align(len, ALIGN) {
         Ok(l) => l,
         Err(_) => return std::ptr::null_mut(),
     };
@@ -47,7 +52,7 @@ unsafe extern "C" fn ab_free(
     if len == 0 {
         return;
     }
-    let layout = match Layout::from_size_align(len, 8) {
+    let layout = match Layout::from_size_align(len, ALIGN) {
         Ok(l) => l,
         Err(_) => return, // Unreachable if alloc succeeded
     };
