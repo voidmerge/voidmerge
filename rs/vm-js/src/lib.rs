@@ -1,5 +1,7 @@
 //! vm-js: Void Merge Javascript Engine.
 
+pub use deno_core;
+
 use std::sync::Arc;
 
 mod alloc;
@@ -49,6 +51,10 @@ struct WithInfo(Arc<str>, #[source] Box<dyn std::error::Error + Send + Sync>);
 /// Javascript result type.
 pub type JsResult<T> = std::result::Result<T, JsError>;
 
+/// Callback for creating deno_core extensions.
+pub type ExtensionCb =
+    Arc<dyn Fn() -> Vec<deno_core::Extension> + 'static + Send + Sync>;
+
 /// Void Merge Javascript Engine Configuration.
 #[derive(Clone)]
 pub struct VmJsConfig {
@@ -57,6 +63,9 @@ pub struct VmJsConfig {
 
     /// The memory usage limit in bytes.
     pub max_mem_bytes: usize,
+
+    /// Callback for creating deno_core extensions.
+    pub extension_cb: ExtensionCb,
 }
 
 impl Default for VmJsConfig {
@@ -64,6 +73,7 @@ impl Default for VmJsConfig {
         Self {
             code: "".into(),
             max_mem_bytes: 1024 * 1024 * 32,
+            extension_cb: Arc::new(Vec::default),
         }
     }
 }

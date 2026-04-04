@@ -21,9 +21,6 @@ icu_calendar = "=2.1.0"
 
 # TODO - swap version to workspace once used in vm itself.
 deno_core = { version = "0.394.0" }
-deno_crypto = "0.255.0"
-deno_web = "0.272.0"
-deno_webidl = "0.241.0"
 serde = { version = "1.0.228", features = [ "derive" ] }
 tokio = { version = "1.50.0", features = [ "full" ] }
 thiserror = "2.0.18"

@@ -34,7 +34,8 @@ pub fn js_thread_loop<Input, Output>(
 
     runtime.block_on(async {
         let cancel_fut = cancel.clone().cancelled_owned();
-        let js_fut = js_thread_loop_async(cancel, config, call_recv, ready_send);
+        let js_fut =
+            js_thread_loop_async(cancel, config, call_recv, ready_send);
 
         tokio::select! {
             _ = cancel_fut => (),
@@ -54,26 +55,15 @@ pub async fn js_thread_loop_async<Input, Output>(
 {
     let (ab_bytes, ab_allocator) = crate::alloc::new_tracking_allocator();
 
+    let extensions = (config.extension_cb)();
+
     let mut js_runtime = deno_core::JsRuntime::new(deno_core::RuntimeOptions {
         create_params: Some(
             v8::CreateParams::default()
                 .heap_limits(0, config.max_mem_bytes)
                 .array_buffer_allocator(ab_allocator),
         ),
-        extensions: vec![
-            /*
-            deno_webidl::deno_webidl::init(),
-            deno_web::deno_web::init(
-                Arc::new(deno_web::BlobStore::default()),
-                None, // location
-                deno_web::InMemoryBroadcastChannel::default(),
-            ),
-            deno_node_stub,
-            deno_crypto::deno_crypto::init(None),
-            bootstrap_ext,
-            spike::init(),
-            */
-        ],
+        extensions,
         ..Default::default()
     });
 

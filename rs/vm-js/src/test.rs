@@ -69,7 +69,8 @@ async fn array_buffer_mem_quota() {
                 mem.push(new Uint8Array(1024));
             };
             return a + 1;
-        }"#.into(),
+        }"#
+        .into(),
         max_mem_bytes: 12 * 1024 * 1024,
         ..Default::default()
     })
@@ -93,7 +94,8 @@ async fn js_mem_quota() {
                 mem.push('a'.repeat(512));
             };
             return a + 1;
-        }"#.into(),
+        }"#
+        .into(),
         max_mem_bytes: 12 * 1024 * 1024,
         ..Default::default()
     })
@@ -106,4 +108,36 @@ async fn js_mem_quota() {
         .unwrap_err();
 
     assert!(res.to_string().contains("terminated"), "{res:?}");
+}
+
+#[tokio::test]
+async fn extension_sanity() {
+    #[deno_core::op2]
+    #[string]
+    async fn my_fn(
+        #[string] param1: String,
+    ) -> Result<String, deno_core::error::CoreError> {
+        tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+        Ok(format!("Got: {param1}"))
+    }
+    deno_core::extension!(my_ext, ops = [my_fn]);
+
+    let j: VmJs<String, String> = VmJs::new(VmJsConfig {
+        code: "function bob(a) { return Deno.core.ops.my_fn(a); }".into(),
+        extension_cb: Arc::new(|| vec![my_ext::init()]),
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+
+    let res = j
+        .call(
+            "bob",
+            "test".to_string(),
+            std::time::Duration::from_secs(10),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!("Got: test".to_string(), res);
 }
