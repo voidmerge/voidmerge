@@ -81,6 +81,7 @@ where
     cancel: tokio_util::sync::CancellationToken,
     _thread: Option<std::thread::JoinHandle<()>>,
     call_send: tokio::sync::mpsc::Sender<js_thread::Call<Input, Output>>,
+    _mon_g: monitor::MonitorGuard,
 }
 
 impl<Input, Output> Drop for VmJs<Input, Output>
@@ -108,16 +109,22 @@ where
         let cancel = tokio_util::sync::CancellationToken::new();
         let (call_send, call_recv) = tokio::sync::mpsc::channel(32);
         let cancel2 = cancel.clone();
+        let (mon_send, mon_recv) = tokio::sync::oneshot::channel();
         let thread = std::thread::spawn(move || {
             js_thread::js_thread_loop::<Input, Output>(
-                config, cancel2, call_recv,
+                config, cancel2, call_recv, mon_send,
             )
         });
+
+        let _mon_g = mon_recv.await.map_err(|_| {
+            JsError::Fatal(std::io::Error::other("thread setup failed"))
+        })?;
 
         Ok(VmJs {
             cancel,
             _thread: Some(thread),
             call_send,
+            _mon_g,
         })
     }
 
@@ -126,8 +133,9 @@ where
         &self,
         fn_name: &'static str,
         input: Input,
+        timeout: std::time::Duration,
     ) -> JsResult<Output> {
-        match self.call_err(fn_name, input).await {
+        match self.call_err(fn_name, input, timeout).await {
             Err(Fatal(err)) => {
                 self.cancel.cancel();
                 Err(Fatal(err))
@@ -140,6 +148,7 @@ where
         &self,
         fn_name: &'static str,
         input: Input,
+        timeout: std::time::Duration,
     ) -> JsResult<Output> {
         if self.cancel.is_cancelled() {
             return Err(JsError::Fatal(std::io::Error::other(
@@ -153,6 +162,7 @@ where
                 fn_name,
                 input,
                 resp: s,
+                timeout,
             })
             .await
         {

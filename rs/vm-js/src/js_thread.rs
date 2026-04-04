@@ -1,7 +1,6 @@
 use crate::{JsError, JsResult};
 use JsError::*;
 use deno_core::v8;
-use std::sync::Arc;
 
 pub type FnName = &'static str;
 
@@ -10,6 +9,7 @@ pub enum Call<Input, Output> {
         fn_name: FnName,
         input: Input,
         resp: tokio::sync::oneshot::Sender<JsResult<Output>>,
+        timeout: std::time::Duration,
     },
 }
 
@@ -19,6 +19,7 @@ pub fn js_thread_loop<Input, Output>(
     config: crate::VmJsConfig,
     cancel: tokio_util::sync::CancellationToken,
     call_recv: CallRecv<Input, Output>,
+    mon_send: tokio::sync::oneshot::Sender<crate::monitor::MonitorGuard>,
 ) where
     Input: 'static + Send + serde::Serialize,
     Output: 'static + Send + serde::de::DeserializeOwned,
@@ -29,16 +30,21 @@ pub fn js_thread_loop<Input, Output>(
         .unwrap();
 
     runtime.block_on(async {
+        let cancel_fut = cancel.clone().cancelled_owned();
+        let js_fut = js_thread_loop_async(cancel, config, call_recv, mon_send);
+
         tokio::select! {
-            _ = cancel.cancelled() => (),
-            _ = js_thread_loop_async::<Input, Output>(config, call_recv) => (),
+            _ = cancel_fut => (),
+            _ = js_fut => (),
         }
     });
 }
 
 pub async fn js_thread_loop_async<Input, Output>(
+    cancel: tokio_util::sync::CancellationToken,
     config: crate::VmJsConfig,
     mut call_recv: CallRecv<Input, Output>,
+    mon_send: tokio::sync::oneshot::Sender<crate::monitor::MonitorGuard>,
 ) where
     Input: 'static + Send + serde::Serialize,
     Output: 'static + Send + serde::de::DeserializeOwned,
@@ -69,35 +75,53 @@ pub async fn js_thread_loop_async<Input, Output>(
     });
 
     let isolate_handle = js_runtime.v8_isolate().thread_safe_handle();
+    let cancel2 = cancel.clone();
     js_runtime.add_near_heap_limit_callback(move |cur, _init| {
         // the monitor thread manages the true memory usage
         // including our arraybuffers.
         // this is a fallback incase the memory usage increases
         // just in the heap faster than the monitor check interval
+        cancel2.cancel();
         isolate_handle.terminate_execution();
 
         // we will terminate, but don't want a crash in the mean time
         cur * 2
     });
 
+    // Set up call memory monitoring
+    let isolate_handle = js_runtime.v8_isolate().thread_safe_handle();
+    let mon_g = crate::monitor::register_monitor(
+        cancel,
+        isolate_handle,
+        config.max_mem_bytes,
+        ab_bytes.clone(),
+    );
+    let mon_uniq = mon_g.0;
+    let _ = mon_send.send(mon_g);
+
     let mut did_setup = false;
 
     while let Some(call) = call_recv.recv().await {
-        let (fn_name, input, resp) = match call {
+        let (fn_name, input, resp, timeout) = match call {
             Call::Call {
                 fn_name,
                 input,
                 resp,
-            } => (fn_name, input, resp),
+                timeout,
+            } => (fn_name, input, resp, timeout),
         };
 
         // check setup
         if !did_setup {
             did_setup = true;
 
-            if let Err(err) =
-                js_runtime.execute_script("<setup>", config.code.clone())
-            {
+            crate::monitor::set_timeout(mon_uniq, timeout);
+
+            let res = js_runtime.execute_script("<setup>", config.code.clone());
+
+            crate::monitor::clear_timeout(mon_uniq);
+
+            if let Err(err) = res {
                 let err = std::io::Error::other(format!(
                     "failed to load javascript code: {err:?}"
                 ));
@@ -106,7 +130,7 @@ pub async fn js_thread_loop_async<Input, Output>(
             }
         }
 
-        match exec_call(&mut js_runtime, &config, &ab_bytes, fn_name, input)
+        match exec_call(&mut js_runtime, fn_name, input, timeout, mon_uniq)
             .await
         {
             Ok(output) => {
@@ -126,10 +150,10 @@ pub async fn js_thread_loop_async<Input, Output>(
 
 async fn exec_call<Input, Output>(
     js_runtime: &mut deno_core::JsRuntime,
-    config: &crate::VmJsConfig,
-    ab_bytes: &Arc<std::sync::atomic::AtomicUsize>,
     fn_name: FnName,
     input: Input,
+    timeout: std::time::Duration,
+    mon_uniq: usize,
 ) -> JsResult<Output>
 where
     Input: 'static + Send + serde::Serialize,
@@ -161,13 +185,7 @@ where
         v8::Global::new(scope, input)
     };
 
-    // Set up call memory monitoring
-    let isolate_handle = js_runtime.v8_isolate().thread_safe_handle();
-    let mon_g = crate::monitor::register_monitor(
-        isolate_handle,
-        config.max_mem_bytes,
-        ab_bytes.clone(),
-    );
+    crate::monitor::set_timeout(mon_uniq, timeout);
 
     // Call via typed binding; drive the event loop while the async fn runs
     let call = js_runtime.call_with_args(&js_fn, &[input]);
@@ -175,8 +193,7 @@ where
         .with_event_loop_promise(call, Default::default())
         .await;
 
-    // stop the memory monitoring
-    drop(mon_g);
+    crate::monitor::clear_timeout(mon_uniq);
 
     let output = match event_loop_result {
         Ok(output) => output,
