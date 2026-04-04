@@ -637,7 +637,7 @@ dependencies = [
  "pin-project",
  "serde",
  "serde_json",
- "serde_v8",
+ "serde_v8 0.303.0",
  "smallvec",
  "sourcemap",
  "static_assertions",
@@ -2369,6 +2369,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_v8"
+version = "0.306.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9741cf5a91953f46cd49d5d20152d49e0cc4eddc4ce4c6d964a855f30254c642"
+dependencies = [
+ "deno_error",
+ "num-bigint",
+ "serde",
+ "smallvec",
+ "thiserror",
+ "v8",
+]
+
+[[package]]
 name = "serdect"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2770,6 +2784,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "tokio-util"
+version = "0.7.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9ae9cec805b01e8fc3fd2fe289f89149a9b66dd16786abd8b19cfa7b48cb0098"
+dependencies = [
+ "bytes",
+ "futures-core",
+ "futures-sink",
+ "pin-project-lite",
+ "tokio",
+]
+
+[[package]]
 name = "typenum"
 version = "1.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2894,9 +2921,11 @@ dependencies = [
  "deno_webidl",
  "icu_calendar",
  "serde",
+ "serde_v8 0.306.0",
  "temporal_rs",
  "thiserror",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]

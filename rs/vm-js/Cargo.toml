@@ -27,6 +27,8 @@ deno_webidl = "0.241.0"
 serde = { version = "1.0.228", features = [ "derive" ] }
 tokio = { version = "1.50.0", features = [ "full" ] }
 thiserror = "2.0.18"
+serde_v8 = "0.306.0"
+tokio-util = "0.7.18"
 
 [package.metadata.docs.rs]
 all-features = true
