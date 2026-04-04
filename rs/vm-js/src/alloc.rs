@@ -10,8 +10,10 @@ unsafe extern "C" fn ab_alloc_zeroed(
     if len == 0 {
         return std::ptr::NonNull::<u8>::dangling().as_ptr().cast();
     }
-    // Safety: align 8 is a valid power-of-two; len > 0.
-    let layout = unsafe { Layout::from_size_align_unchecked(len, 8) };
+    let layout = match Layout::from_size_align(len, 8) {
+        Ok(l) => l,
+        Err(_) => return std::ptr::null_mut(),
+    };
     let ptr = unsafe { alloc_zeroed(layout) };
     if !ptr.is_null() {
         handle.fetch_add(len, atomic::Ordering::Relaxed);
@@ -26,7 +28,10 @@ unsafe extern "C" fn ab_alloc_uninit(
     if len == 0 {
         return std::ptr::NonNull::<u8>::dangling().as_ptr().cast();
     }
-    let layout = unsafe { Layout::from_size_align_unchecked(len, 8) };
+    let layout = match Layout::from_size_align(len, 8) {
+        Ok(l) => l,
+        Err(_) => return std::ptr::null_mut(),
+    };
     let ptr = unsafe { alloc(layout) };
     if !ptr.is_null() {
         handle.fetch_add(len, atomic::Ordering::Relaxed);
@@ -42,7 +47,10 @@ unsafe extern "C" fn ab_free(
     if len == 0 {
         return;
     }
-    let layout = unsafe { Layout::from_size_align_unchecked(len, 8) };
+    let layout = match Layout::from_size_align(len, 8) {
+        Ok(l) => l,
+        Err(_) => return, // Unreachable if alloc succeeded
+    };
     unsafe { dealloc(data.cast(), layout) };
     handle.fetch_sub(len, atomic::Ordering::Relaxed);
 }

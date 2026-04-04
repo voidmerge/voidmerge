@@ -81,7 +81,6 @@ where
     cancel: tokio_util::sync::CancellationToken,
     _thread: Option<std::thread::JoinHandle<()>>,
     call_send: tokio::sync::mpsc::Sender<js_thread::Call<Input, Output>>,
-    _mon_g: monitor::MonitorGuard,
 }
 
 impl<Input, Output> Drop for VmJs<Input, Output>
@@ -109,14 +108,14 @@ where
         let cancel = tokio_util::sync::CancellationToken::new();
         let (call_send, call_recv) = tokio::sync::mpsc::channel(32);
         let cancel2 = cancel.clone();
-        let (mon_send, mon_recv) = tokio::sync::oneshot::channel();
+        let (ready_send, ready_recv) = tokio::sync::oneshot::channel();
         let thread = std::thread::spawn(move || {
             js_thread::js_thread_loop::<Input, Output>(
-                config, cancel2, call_recv, mon_send,
+                config, cancel2, call_recv, ready_send,
             )
         });
 
-        let _mon_g = mon_recv.await.map_err(|_| {
+        let _ = ready_recv.await.map_err(|_| {
             JsError::Fatal(std::io::Error::other("thread setup failed"))
         })?;
 
@@ -124,7 +123,6 @@ where
             cancel,
             _thread: Some(thread),
             call_send,
-            _mon_g,
         })
     }
 

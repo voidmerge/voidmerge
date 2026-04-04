@@ -19,7 +19,7 @@ pub fn js_thread_loop<Input, Output>(
     config: crate::VmJsConfig,
     cancel: tokio_util::sync::CancellationToken,
     call_recv: CallRecv<Input, Output>,
-    mon_send: tokio::sync::oneshot::Sender<crate::monitor::MonitorGuard>,
+    ready_send: tokio::sync::oneshot::Sender<()>,
 ) where
     Input: 'static + Send + serde::Serialize,
     Output: 'static + Send + serde::de::DeserializeOwned,
@@ -31,7 +31,7 @@ pub fn js_thread_loop<Input, Output>(
 
     runtime.block_on(async {
         let cancel_fut = cancel.clone().cancelled_owned();
-        let js_fut = js_thread_loop_async(cancel, config, call_recv, mon_send);
+        let js_fut = js_thread_loop_async(cancel, config, call_recv, ready_send);
 
         tokio::select! {
             _ = cancel_fut => (),
@@ -44,7 +44,7 @@ pub async fn js_thread_loop_async<Input, Output>(
     cancel: tokio_util::sync::CancellationToken,
     config: crate::VmJsConfig,
     mut call_recv: CallRecv<Input, Output>,
-    mon_send: tokio::sync::oneshot::Sender<crate::monitor::MonitorGuard>,
+    ready_send: tokio::sync::oneshot::Sender<()>,
 ) where
     Input: 'static + Send + serde::Serialize,
     Output: 'static + Send + serde::de::DeserializeOwned,
@@ -90,14 +90,14 @@ pub async fn js_thread_loop_async<Input, Output>(
 
     // Set up call memory monitoring
     let isolate_handle = js_runtime.v8_isolate().thread_safe_handle();
-    let mon_g = crate::monitor::register_monitor(
+    let _mon_g = crate::monitor::register_monitor(
         cancel,
         isolate_handle,
         config.max_mem_bytes,
         ab_bytes.clone(),
     );
-    let mon_uniq = mon_g.0;
-    let _ = mon_send.send(mon_g);
+    let mon_uniq = _mon_g.0;
+    let _ = ready_send.send(());
 
     let mut did_setup = false;
 
