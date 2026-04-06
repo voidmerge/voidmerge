@@ -1,3 +1,13 @@
+//! V8/deno_core runs single threaded. While awating a call promise
+//! and executing the event loop, interrupting is complicated..
+//! You must use the isolate_handle.request_interrupt function.
+//! So, for monitoring timeouts on calls, and memory overages,
+//! we need a separate thread running to do that monitoring.
+//!
+//! We create a single monitor thread that lasts for the life of the
+//! process, which picks up all jobs from all VmJs instances doing
+//! the monitoring as appropriate for those jobs.
+
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 

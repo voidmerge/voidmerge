@@ -27,6 +27,7 @@ pub enum JsError {
 use JsError::*;
 
 impl JsError {
+    /// Construct a new fatal version of [JsError].
     pub fn fatal<E: Into<Box<dyn std::error::Error + Send + Sync>>>(
         info: impl Into<Arc<str>>,
     ) -> impl FnOnce(E) -> JsError {
@@ -35,6 +36,7 @@ impl JsError {
         }
     }
 
+    /// Construct a new non-fatal version of [JsError].
     pub fn non_fatal<E: Into<Box<dyn std::error::Error + Send + Sync>>>(
         info: impl Into<Arc<str>>,
     ) -> impl FnOnce(E) -> JsError {
@@ -44,6 +46,7 @@ impl JsError {
     }
 }
 
+/// Helper to add context to a generic error.
 #[derive(Debug, thiserror::Error)]
 #[error("{0}: {1}")]
 struct WithInfo(Arc<str>, #[source] Box<dyn std::error::Error + Send + Sync>);
@@ -78,7 +81,7 @@ impl Default for VmJsConfig {
     }
 }
 
-/// Void Merge Javascript Engine.
+/// Void Merge javascript engine. This represents a single javascript thread.
 pub struct VmJs<Input, Output>
 where
     Input: 'static + Send + serde::Serialize,
@@ -156,6 +159,7 @@ where
         }
     }
 
+    /// Inner call function lets us handle the fatal case once DRY above.
     async fn call_err(
         &self,
         fn_name: &'static str,

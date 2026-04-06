@@ -1,3 +1,8 @@
+//! V8 only tracks internal javascript memory which doesn't include
+//! ArrayBuffers like Uint8Array instances. Those are managed by
+//! rust. So we need to keep track of that as well. This custom
+//! allocator allows us to do that tracking.
+
 use std::alloc::{Layout, alloc, alloc_zeroed, dealloc};
 use std::ffi::c_void;
 use std::sync::Arc;

@@ -7,6 +7,7 @@ const SETUP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 pub type FnName = &'static str;
 
+/// Message mechanism for controling operations within the javascript thread.
 pub enum Call<Input, Output> {
     Call {
         fn_name: FnName,
@@ -16,8 +17,13 @@ pub enum Call<Input, Output> {
     },
 }
 
+/// Type for receiving messages to control the javascript thread
 type CallRecv<Input, Output> = tokio::sync::mpsc::Receiver<Call<Input, Output>>;
 
+/// This is the main thread entry point.
+///
+/// However, it just sets up a single threaded tokio runtime
+/// then delegates to [js_thread_loop_async].
 pub fn js_thread_loop<Input, Output>(
     config: crate::VmJsConfig,
     cancel: tokio_util::sync::CancellationToken,
@@ -44,6 +50,7 @@ pub fn js_thread_loop<Input, Output>(
     });
 }
 
+/// The actual javascript workhorse thread function.
 pub async fn js_thread_loop_async<Input, Output>(
     cancel: tokio_util::sync::CancellationToken,
     config: crate::VmJsConfig,
@@ -53,20 +60,28 @@ pub async fn js_thread_loop_async<Input, Output>(
     Input: 'static + Send + serde::Serialize,
     Output: 'static + Send + serde::de::DeserializeOwned,
 {
+    // Set up our allocator for tracking array buffer allocations
+    // Also returns an atomic for accessing that allocation info.
     let (ab_bytes, ab_allocator) = crate::alloc::new_tracking_allocator();
 
+    // Get the array of deno_core extensions that will be loaded.
     let extensions = (config.extension_cb)();
 
+    // Construct the runtime
     let mut js_runtime = deno_core::JsRuntime::new(deno_core::RuntimeOptions {
         create_params: Some(
             v8::CreateParams::default()
+                // set up heap limit as a fallback
                 .heap_limits(0, config.max_mem_bytes)
+                // set up our custom allocator
                 .array_buffer_allocator(ab_allocator),
         ),
+        // use the supplied extensions
         extensions,
         ..Default::default()
     });
 
+    // set up the heap limit callback handler
     let isolate_handle = js_runtime.v8_isolate().thread_safe_handle();
     let cancel2 = cancel.clone();
     js_runtime.add_near_heap_limit_callback(move |cur, _init| {
@@ -90,10 +105,13 @@ pub async fn js_thread_loop_async<Input, Output>(
         ab_bytes.clone(),
     );
     let mon_uniq = _mon_g.0;
+
+    // notify that the thread is up and running
     let _ = ready_send.send(());
 
     let mut did_setup = false;
 
+    // loop over the incoming call commands
     while let Some(call) = call_recv.recv().await {
         let (fn_name, input, resp, timeout) = match call {
             Call::Call {
@@ -108,13 +126,17 @@ pub async fn js_thread_loop_async<Input, Output>(
         if !did_setup {
             did_setup = true;
 
+            // use hardcoded timeout for setup code
             crate::monitor::set_timeout(mon_uniq, SETUP_TIMEOUT);
 
+            // execute setup code
             let res = js_runtime.execute_script("<setup>", config.code.clone());
 
             crate::monitor::clear_timeout(mon_uniq);
 
             if let Err(err) = res {
+                // if setup gave an error respond with that error to the
+                // first call request.
                 let err = std::io::Error::other(format!(
                     "failed to load javascript code: {err:?}"
                 ));
@@ -123,6 +145,7 @@ pub async fn js_thread_loop_async<Input, Output>(
             }
         }
 
+        // execute the actual javascript call, responding correctly
         match exec_call(&mut js_runtime, fn_name, input, timeout, mon_uniq)
             .await
         {
@@ -131,10 +154,12 @@ pub async fn js_thread_loop_async<Input, Output>(
             }
             Err(NonFatal(err)) => {
                 let _ = resp.send(Err(NonFatal(err)));
+                // if we got a non-fatal error, we can continue
                 continue;
             }
             Err(Fatal(err)) => {
                 let _ = resp.send(Err(Fatal(err)));
+                // if we got a fatal error, exit the thread loop
                 return;
             }
         }

@@ -5,6 +5,6 @@
 
 <!-- cargo-rdme start -->
 
-vm-js: Void Merge Javascript Engine
+vm-js: Void Merge Javascript Engine.
 
 <!-- cargo-rdme end -->
