@@ -83,7 +83,8 @@ impl MsgMem {
             let task = tokio::task::spawn(async move {
                 loop {
                     if let Some(this) = this.upgrade() {
-                        this.map.lock().unwrap().prune();
+                        let _drop = this.map.lock().unwrap().prune();
+                        // _drop is released here, after the lock guard is dropped.
                     } else {
                         break;
                     }
@@ -129,7 +130,8 @@ impl Msg for MsgMem {
             let s = self.map.lock().unwrap().msg_send(&ctx, &msg_id);
             if let Some(s) = s {
                 if s.try_send(msg).is_err() {
-                    self.map.lock().unwrap().remove(&ctx, &msg_id);
+                    let _drop = self.map.lock().unwrap().remove(&ctx, &msg_id);
+                    // _drop released here, after the lock guard is dropped.
                     Err(Error::other("msg channel closed"))
                 } else {
                     Ok(())
@@ -162,14 +164,23 @@ impl ChanMap {
         })
     }
 
-    fn prune(&mut self) {
+    fn prune(&mut self) -> Vec<DynMsgRecv> {
+        let mut to_drop = Vec::new();
         self.map.retain(|_, m| {
             m.retain(|_, i| {
-                i.recv.is_none()
+                if i.recv.is_none()
                     || i.ts.elapsed() < std::time::Duration::from_secs(30)
+                {
+                    true
+                } else {
+                    // Take recv out so it isn't dropped while the lock is held.
+                    to_drop.extend(i.recv.take());
+                    false
+                }
             });
             !m.is_empty()
         });
+        to_drop
     }
 
     fn msg_new(&mut self, ctx: Arc<str>) -> Arc<str> {
@@ -230,10 +241,14 @@ impl ChanMap {
         None
     }
 
-    fn remove(&mut self, ctx: &Arc<str>, msg_id: &Arc<str>) {
+    fn remove(&mut self, ctx: &Arc<str>, msg_id: &Arc<str>) -> Option<DynMsgRecv> {
+        let mut to_drop = None;
         let mut remove_ctx = false;
         if let Some(m) = self.map.get_mut(ctx) {
-            m.remove(msg_id);
+            if let Some(mut item) = m.remove(msg_id) {
+                // Take recv out so it isn't dropped while the lock is held.
+                to_drop = item.recv.take();
+            }
             if m.is_empty() {
                 remove_ctx = true;
             }
@@ -241,6 +256,7 @@ impl ChanMap {
         if remove_ctx {
             self.map.remove(ctx);
         }
+        to_drop
     }
 }
 
@@ -254,7 +270,8 @@ struct MsgMemRecv {
 impl Drop for MsgMemRecv {
     fn drop(&mut self) {
         if let Some(drop) = self.drop.upgrade() {
-            drop.lock().unwrap().remove(&self.ctx, &self.msg_id);
+            let _drop = drop.lock().unwrap().remove(&self.ctx, &self.msg_id);
+            // _drop released here, after the lock guard is dropped.
         }
     }
 }
