@@ -241,7 +241,11 @@ impl ChanMap {
         None
     }
 
-    fn remove(&mut self, ctx: &Arc<str>, msg_id: &Arc<str>) -> Option<DynMsgRecv> {
+    fn remove(
+        &mut self,
+        ctx: &Arc<str>,
+        msg_id: &Arc<str>,
+    ) -> Option<DynMsgRecv> {
         let mut to_drop = None;
         let mut remove_ctx = false;
         if let Some(m) = self.map.get_mut(ctx) {
