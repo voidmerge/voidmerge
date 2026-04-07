@@ -66,7 +66,7 @@ fn status() -> f64 {
 }
 
 /// Output from a javascript execution.
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize)]
 #[serde(
     tag = "type",
     rename_all = "camelCase",
@@ -98,6 +98,26 @@ pub enum JsResponse {
         #[serde(default)]
         headers: HashMap<String, String>,
     },
+}
+
+impl std::fmt::Debug for JsResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::CodeConfigResOk { cron_interval_secs } => f
+                .debug_struct("JsResponset::CodeConfigResOk")
+                .field("cron_interval_secs", &cron_interval_secs)
+                .finish(),
+            Self::CronResOk => f.debug_struct("JsResponse::CronResOk").finish(),
+            Self::ObjCheckResOk => {
+                f.debug_struct("JsRequest::ObjCheckResOk").finish()
+            }
+            Self::FnResOk { status, body, .. } => f
+                .debug_struct("JsRequest::FnResOk")
+                .field("status", status)
+                .field("body_len", &body.len())
+                .finish(),
+        }
+    }
 }
 
 static MAX_THREADS: std::sync::OnceLock<usize> = std::sync::OnceLock::new();

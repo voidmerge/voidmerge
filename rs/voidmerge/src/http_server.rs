@@ -87,10 +87,36 @@ pub async fn http_server(
         server: Arc::new(server),
     });
 
+    /*
     let cors = tower_http::cors::CorsLayer::new()
         .allow_methods([axum::http::Method::GET, axum::http::Method::PUT])
         .allow_headers([axum::http::header::AUTHORIZATION])
         .allow_origin(tower_http::cors::Any);
+    */
+
+    let cors = tower_http::cors::CorsLayer::new()
+        // Echo the Request "Origin" Header
+        .allow_origin(tower_http::cors::AllowOrigin::mirror_request())
+        // Access-Control-Allow-Credentials: true
+        .allow_credentials(true)
+        // Access-Control-Allow-Methods:
+        // GET, POST, PUT, DELETE, OPTIONS, HEAD, PATCH
+        .allow_methods([
+            axum::http::Method::GET,
+            axum::http::Method::POST,
+            axum::http::Method::PUT,
+            axum::http::Method::DELETE,
+            axum::http::Method::OPTIONS,
+            axum::http::Method::HEAD,
+            axum::http::Method::PATCH,
+        ])
+        // Access-Control-Allow-Headers: * (via mirroring)
+        .allow_headers(tower_http::cors::AllowHeaders::mirror_request());
+
+    /*
+        // Access-Control-Expose-Headers: *
+        .expose_headers(tower_http::cors::Any);
+    */
 
     let app: axum::Router<Arc<State>> = axum::Router::new()
         .route("/", axum::routing::get(route_health_get))
