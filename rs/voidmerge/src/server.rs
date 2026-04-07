@@ -432,10 +432,13 @@ impl Server {
         ctx: Arc<str>,
         req: crate::js::JsRequest,
     ) -> Result<crate::js::JsResponse> {
-        tracing::trace!(request = "fn_req", ?ctx, ?req);
+        let req_id = rid();
+
+        tracing::trace!(request = "fn_req", %req_id, ?ctx, ?req);
 
         let c = match self.ctx_map.lock().unwrap().get(&ctx) {
             None => {
+                tracing::trace!(request = "fn_req", ?ctx, "invalid context");
                 return Err(Error::not_found(format!(
                     "invalid context: {ctx}"
                 )));
@@ -444,6 +447,8 @@ impl Server {
         };
 
         let res = c.fn_req(req).await;
+
+        tracing::trace!(request = "fn_req", %req_id, ?ctx, ?res);
 
         use crate::js::JsResponse::FnResOk;
         if let Ok(FnResOk { body, headers, .. }) = &res {
@@ -458,4 +463,10 @@ impl Server {
 
         res
     }
+}
+
+fn rid() -> u64 {
+    static I: std::sync::atomic::AtomicU64 =
+        std::sync::atomic::AtomicU64::new(1);
+    I.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
