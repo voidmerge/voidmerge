@@ -111,9 +111,12 @@ pub async fn http_server(
             axum::http::Method::PATCH,
         ])
         // Access-Control-Allow-Headers: * (via mirroring)
-        .allow_headers(tower_http::cors::AllowHeaders::mirror_request())
+        .allow_headers(tower_http::cors::AllowHeaders::mirror_request());
+
+    /*
         // Access-Control-Expose-Headers: *
         .expose_headers(tower_http::cors::Any);
+    */
 
     let app: axum::Router<Arc<State>> = axum::Router::new()
         .route("/", axum::routing::get(route_health_get))
