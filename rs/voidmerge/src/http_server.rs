@@ -122,6 +122,22 @@ pub async fn http_server(
         .route("/", axum::routing::get(route_health_get))
         .route("/ctx-setup", axum::routing::put(route_ctx_setup_put))
         .route(
+            "/_vm_/obj-backup-full",
+            axum::routing::get(route_obj_backup_full),
+        )
+        .route(
+            "/_vm_/obj-backup-full/",
+            axum::routing::get(route_obj_backup_full),
+        )
+        .route(
+            "/_vm_/obj-restore-full",
+            axum::routing::get(route_obj_restore_full),
+        )
+        .route(
+            "/_vm_/obj-restore-full/",
+            axum::routing::get(route_obj_restore_full),
+        )
+        .route(
             "/{ctx}/_vm_/config",
             axum::routing::put(route_ctx_config_put),
         )
@@ -441,6 +457,30 @@ fn hdr(m: &axum::http::HeaderMap) -> std::collections::HashMap<String, String> {
             )
         })
         .collect()
+}
+
+async fn route_obj_backup_full(
+    headers: axum::http::HeaderMap,
+    axum::extract::ConnectInfo(_addr): axum::extract::ConnectInfo<
+        std::net::SocketAddr,
+    >,
+    axum::extract::State(state): axum::extract::State<Arc<State>>,
+) -> AxumResult {
+    let token = auth_token(&headers);
+    state.server.obj_backup_full(token).await?;
+    Ok("Ok".into_response())
+}
+
+async fn route_obj_restore_full(
+    headers: axum::http::HeaderMap,
+    axum::extract::ConnectInfo(_addr): axum::extract::ConnectInfo<
+        std::net::SocketAddr,
+    >,
+    axum::extract::State(state): axum::extract::State<Arc<State>>,
+) -> AxumResult {
+    let token = auth_token(&headers);
+    state.server.obj_restore_full(token).await?;
+    Ok("Ok".into_response())
 }
 
 #[axum::debug_handler]

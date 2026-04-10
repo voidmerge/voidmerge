@@ -314,6 +314,102 @@ impl Server {
             .await
     }
 
+    /// Generate a full backup file on the local system.
+    pub async fn obj_backup_full(&self, token: Arc<str>) -> Result<()> {
+        self.check_sysadmin(&token)?;
+
+        let mut zip = tokio::task::spawn_blocking(|| {
+            let zip = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open("backup.zip")?;
+            std::io::Result::Ok(zip::ZipWriter::new(zip))
+        })
+        .await??;
+
+        let mut created_gt = 0.0;
+        let mut file_no = 1;
+
+        loop {
+            let meta_list = self
+                .runtime
+                .runtime()
+                .obj()?
+                .list("", created_gt, 200)
+                .await?;
+
+            if meta_list.is_empty() {
+                return Ok(());
+            }
+
+            for meta in meta_list {
+                created_gt = meta.created_secs();
+
+                let (meta, data) =
+                    self.runtime.runtime().obj()?.get(meta).await?;
+
+                let meta2 = meta.clone();
+                zip = tokio::task::spawn_blocking(move || {
+                    use std::io::Write;
+                    let enc = rmp_serde::to_vec(&(meta2, data))
+                        .map_err(std::io::Error::other)?;
+                    zip.start_file(
+                        file_no.to_string(),
+                        zip::write::SimpleFileOptions::default(),
+                    )?;
+                    zip.write_all(&enc)?;
+                    std::io::Result::Ok(zip)
+                })
+                .await??;
+
+                file_no += 1;
+
+                tracing::info!(%meta, "backup file");
+            }
+        }
+    }
+
+    /// Restore a full backup file from the local system.
+    pub async fn obj_restore_full(&self, token: Arc<str>) -> Result<()> {
+        self.check_sysadmin(&token)?;
+
+        let (mut zip, count) = tokio::task::spawn_blocking(|| {
+            let zip =
+                std::fs::OpenOptions::new().read(true).open("backup.zip")?;
+            let zip = zip::ZipArchive::new(zip)?;
+            let count = zip.len();
+            std::io::Result::Ok((zip, count))
+        })
+        .await??;
+
+        for idx in 0..count {
+            let (tmp, meta, data) = tokio::task::spawn_blocking(move || {
+                let mut out = Vec::new();
+                {
+                    let mut read = zip.by_index(idx)?;
+                    use std::io::Read;
+                    read.read_to_end(&mut out)?;
+                }
+                let (meta, data): (crate::obj::ObjMeta, bytes::Bytes) =
+                    rmp_serde::from_slice(&out)
+                        .map_err(std::io::Error::other)?;
+                std::io::Result::Ok((zip, meta, data))
+            })
+            .await??;
+            zip = tmp;
+
+            self.runtime
+                .runtime()
+                .obj()?
+                .put(meta.clone(), data)
+                .await?;
+
+            tracing::info!(%meta, "restore file");
+        }
+
+        Ok(())
+    }
+
     /// List metadata from the object store.
     pub async fn obj_list(
         &self,
