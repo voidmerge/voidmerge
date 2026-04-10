@@ -207,4 +207,46 @@ impl HttpClient {
         let res = res.text().await.map_err(std::io::Error::other)?;
         Ok(crate::obj::ObjMeta(res.into()))
     }
+
+    /// Call the admin obj-backup-full api on a VoidMerge server.
+    pub async fn obj_backup_full(&self, url: &str, token: &str) -> Result<()> {
+        let mut url: reqwest::Url =
+            url.parse().map_err(std::io::Error::other)?;
+        url.set_path("_vm_/obj-backup-full");
+        let token = format!("Bearer {}", &token);
+        let res = self
+            .client
+            .get(url)
+            .header("Authorization", token)
+            .send()
+            .await
+            .map_err(std::io::Error::other)?;
+        if res.error_for_status_ref().is_err() {
+            return Err(std::io::Error::other(
+                res.text().await.map_err(std::io::Error::other)?,
+            ));
+        }
+        Ok(())
+    }
+
+    /// Call the admin obj-restore-full api on a VoidMerge server.
+    pub async fn obj_restore_full(&self, url: &str, token: &str) -> Result<()> {
+        let mut url: reqwest::Url =
+            url.parse().map_err(std::io::Error::other)?;
+        url.set_path("_vm_/obj-restore-full");
+        let token = format!("Bearer {}", &token);
+        let res = self
+            .client
+            .get(url)
+            .header("Authorization", token)
+            .send()
+            .await
+            .map_err(std::io::Error::other)?;
+        if res.error_for_status_ref().is_err() {
+            return Err(std::io::Error::other(
+                res.text().await.map_err(std::io::Error::other)?,
+            ));
+        }
+        Ok(())
+    }
 }

@@ -72,6 +72,18 @@ obj-put                   : Put an object into the context store (ctxadmin)
   --create    <TIMESTAMP> : The createdSecs to store (env: VM_CREATE=)
   --expire    <TIMESTAMP> : The expiresSecs to store (env: VM_EXPIRE=)
 
+obj-backup-full           : Backup entire server (sysadmin)
+  --url       <URL>       : The server url (env: VM_URL=)
+  --token     <TOKEN>     : The ctxadmin api token to use (env: VM_TOKEN=)
+
+obj-restore-full          : Restore entire server (sysadmin)
+                            WARNING: this will restore the raw data,
+                            but any new contexts created will not be running.
+                            You will need to restart the server to access
+                            new contexts.
+  --url       <URL>       : The server url (env: VM_URL=)
+  --token     <TOKEN>     : The ctxadmin api token to use (env: VM_TOKEN=)
+
 obj-backup                : Backup an object store to a local zipfile (ctxadmin)
   --url       <URL>       : The server url (env: VM_URL=)
   --token     <TOKEN>     : The ctxadmin api token to use (env: VM_TOKEN=)
