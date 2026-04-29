@@ -1,0 +1,171 @@
+//! V8/deno_core runs single threaded. While awating a call promise
+//! and executing the event loop, interrupting is complicated..
+//! You must use the isolate_handle.request_interrupt function.
+//! So, for monitoring timeouts on calls, and memory overages,
+//! we need a separate thread running to do that monitoring.
+//!
+//! We create a single monitor thread that lasts for the life of the
+//! process, which picks up all jobs from all VmJs instances doing
+//! the monitoring as appropriate for those jobs.
+
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+
+/// Handle to a running monitor task.
+/// Dropping this guard will stop monitoring the given resource.
+pub struct MonitorGuard(pub usize);
+
+impl Drop for MonitorGuard {
+    fn drop(&mut self) {
+        let mon = mon_map().remove(&self.0);
+        if let Some(mon) = mon {
+            mon.cancel.cancel();
+        }
+    }
+}
+
+/// Register a task to monitor v8 memory usage.
+pub fn register_monitor(
+    cancel: tokio_util::sync::CancellationToken,
+    isolate_handle: deno_core::v8::IsolateHandle,
+    max_mem_bytes: usize,
+    ab_bytes: Arc<std::sync::atomic::AtomicUsize>,
+) -> MonitorGuard {
+    let uniq = get_uniq();
+
+    mon_map().insert(
+        uniq,
+        Arc::new(Monitor {
+            cancel,
+            isolate_handle,
+            max_mem_bytes,
+            ab_bytes,
+            timeout_at: Mutex::new(None),
+        }),
+    );
+
+    MonitorGuard(uniq)
+}
+
+/// Set up a timeout for a javascript operation.
+pub fn set_timeout(mon_uniq: usize, timeout: std::time::Duration) {
+    let mon = mon_map().get(&mon_uniq).cloned();
+    if let Some(mon) = mon {
+        *mon.timeout_at.lock().unwrap() =
+            Some(std::time::Instant::now() + timeout);
+    }
+}
+
+/// Clear a javascript operation timeout.
+pub fn clear_timeout(mon_uniq: usize) {
+    let mon = mon_map().get(&mon_uniq).cloned();
+    if let Some(mon) = mon {
+        *mon.timeout_at.lock().unwrap() = None;
+    }
+}
+
+fn get_uniq() -> usize {
+    static MON_UNIQ: std::sync::atomic::AtomicUsize =
+        std::sync::atomic::AtomicUsize::new(1);
+    MON_UNIQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
+struct Monitor {
+    cancel: tokio_util::sync::CancellationToken,
+    isolate_handle: deno_core::v8::IsolateHandle,
+    max_mem_bytes: usize,
+    ab_bytes: Arc<std::sync::atomic::AtomicUsize>,
+    timeout_at: Mutex<Option<std::time::Instant>>,
+}
+
+/// Access the map containing active js threads to monitor.
+///
+/// Warning: Don't call this within a javascript execution context,
+///          and be sure to bind a `.cloned()` item, so the lock
+///          isn't held while executing operations.
+fn mon_map() -> std::sync::MutexGuard<'static, HashMap<usize, Arc<Monitor>>> {
+    static MON_MAP: std::sync::OnceLock<
+        std::sync::Mutex<HashMap<usize, Arc<Monitor>>>,
+    > = std::sync::OnceLock::new();
+    MON_MAP
+        .get_or_init(|| {
+            // spawn this single global thread for monitoring
+            let _ = std::thread::spawn(mon_thread);
+            Default::default()
+        })
+        .lock()
+        .unwrap()
+}
+
+fn mon_thread() {
+    loop {
+        // anything shorter could cause thrashing in the js execution
+        // we could potentially go as high as 500ms but then timeouts
+        // start to feel untimely, and we might leave memory overages
+        // up for longer...
+        std::thread::sleep(std::time::Duration::from_millis(100));
+
+        let list: Vec<(usize, Arc<Monitor>)> = mon_map()
+            .iter()
+            .map(|(uniq, mon)| (*uniq, mon.clone()))
+            .collect();
+
+        // for the complete list of set up monitors
+        for (uniq, mon) in list {
+            // request an interrupt in the js engine so we can
+            // check some state, and shut down execution if needed
+            mon.isolate_handle.request_interrupt(
+                mem_interrupt_cb,
+                uniq as *mut std::ffi::c_void,
+            );
+        }
+    }
+}
+
+unsafe extern "C" fn mem_interrupt_cb(
+    mut isolate: deno_core::v8::UnsafeRawIsolatePtr,
+    data: *mut std::ffi::c_void,
+) {
+    // type our inputs correctly
+    let isolate = unsafe {
+        deno_core::v8::Isolate::ref_from_raw_isolate_ptr_mut(&mut isolate)
+    };
+    let uniq: usize = data as usize;
+
+    // access the registered monitor data
+    let mon = mon_map().get(&uniq).cloned();
+    let mon = match mon {
+        // if this doesn't exist, the thread is already shutting down
+        // we can safely do nothing
+        None => return,
+        Some(mon) => mon,
+    };
+
+    // if we've already been cancelled, we can exit early
+    if mon.cancel.is_cancelled() {
+        isolate.terminate_execution();
+        return;
+    }
+
+    // if an active call has timed out, that is fatal
+    // because the call could have zombie promises that would
+    // infect future calls
+    let now = std::time::Instant::now();
+    if let Some(timeout_at) = *mon.timeout_at.lock().unwrap()
+        && timeout_at <= now
+    {
+        mon.cancel.cancel();
+        isolate.terminate_execution();
+        return;
+    }
+
+    // finally check to see if we are over on our memory quota
+    let stats = isolate.get_heap_statistics();
+    let ab_used = mon.ab_bytes.load(std::sync::atomic::Ordering::Relaxed);
+    let total = stats.total_heap_size() + ab_used;
+
+    if total > mon.max_mem_bytes {
+        mon.cancel.cancel();
+        isolate.terminate_execution();
+    }
+}
