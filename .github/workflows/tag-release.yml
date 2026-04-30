@@ -26,7 +26,7 @@ jobs:
           - os: windows-latest
             asset_name: voidmerge-x86_64-pc-windows-msvc.zip
           - os: macos-latest
-            asset_name: voidmerge-x86_64-apple-darwin.tar.gz
+            asset_name: voidmerge-aarch64-apple-darwin.tar.gz
 
     steps:
       - name: Checkout Code
