@@ -1,0 +1,66 @@
+name: Tag Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Manual Tag (e.g., v1.0.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-upload:
+    name: Build for ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset_name: voidmerge-x86_64-unknown-linux-gnu.tar.gz
+          - os: windows-latest
+            asset_name: voidmerge-x86_64-pc-windows-msvc.zip
+          - os: macos-latest
+            asset_name: voidmerge-x86_64-apple-darwin.tar.gz
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag_name || github.ref }}
+
+      - name: Rust Toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build Release
+        run: cargo build --release
+
+      - name: Package Binary (Unix)
+        if: matrix.os != 'windows-latest'
+        run: |
+          cd target/release
+          tar -czf ../../${{ matrix.asset_name }} vm
+
+      - name: Package Binary (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          cd target/release
+          Compress-Archive -Path vm.exe -DestinationPath ..\..\${{ matrix.asset_name }}
+
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag_name || github.ref_name }}
+          files: ${{ matrix.asset_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
