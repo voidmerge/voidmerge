@@ -12,6 +12,7 @@ test:
 	RUSTFLAGS="-D warnings" cargo test --locked --all-features
 	RUSTFLAGS="-D warnings" cargo test --locked --all-features -- --ignored js_stress --nocapture
 	(cd rs/voidmerge/ && cargo rdme --force)
+	(cd rs/vm-js/ && cargo rdme --force)
 	npm test
 
 bump:
