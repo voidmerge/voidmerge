@@ -38,7 +38,7 @@ tokio = { workspace = true, features = [ "sync", "fs", "rt", "io-util" ] }
 tower-http = { workspace = true, optional = true, features = [ "cors" ] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, optional = true, features = [ "env-filter", "json" ] }
-zip = { workspace = true, optional = true }
+zip = { workspace = true }
 
 [dev-dependencies]
 async-walkdir = "2.1.0"
@@ -52,7 +52,7 @@ default = [ "http-server", "cli" ]
 http-server = [ "dep:axum", "dep:axum-server", "dep:tower-http" ]
 
 # The cli tool.
-cli = [ "tokio/full", "dep:minimist", "dep:opentelemetry", "dep:opentelemetry-otlp", "dep:opentelemetry_sdk", "dep:opentelemetry-appender-tracing", "dep:sysinfo", "dep:tracing-subscriber", "dep:zip" ]
+cli = [ "tokio/full", "dep:minimist", "dep:opentelemetry", "dep:opentelemetry-otlp", "dep:opentelemetry_sdk", "dep:opentelemetry-appender-tracing", "dep:sysinfo", "dep:tracing-subscriber" ]
 
 [package.metadata.docs.rs]
 all-features = true

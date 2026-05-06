@@ -196,6 +196,22 @@ fn arg_parse() -> Result<Arg> {
                 expire: exp!(args, "expire").into(),
             })
         }
+        "obj-backup-full" => {
+            args.set_default_env("url", "VM_URL");
+            args.set_default_env("token", "VM_TOKEN");
+            Ok(Arg::ObjBackupFull {
+                url: exp!(args, "url").into(),
+                token: exp!(args, "token").into(),
+            })
+        }
+        "obj-restore-full" => {
+            args.set_default_env("url", "VM_URL");
+            args.set_default_env("token", "VM_TOKEN");
+            Ok(Arg::ObjRestoreFull {
+                url: exp!(args, "url").into(),
+                token: exp!(args, "token").into(),
+            })
+        }
         "obj-backup" => {
             args.set_default_env("url", "VM_URL");
             args.set_default_env("token", "VM_TOKEN");
@@ -358,6 +374,14 @@ enum Arg {
         app_path: String,
         create: String,
         expire: String,
+    },
+    ObjBackupFull {
+        url: String,
+        token: Arc<str>,
+    },
+    ObjRestoreFull {
+        url: String,
+        token: Arc<str>,
     },
     ObjBackup {
         url: String,
@@ -635,6 +659,20 @@ impl Arg {
                 let meta =
                     client.obj_put(&url, &token, meta, data.into()).await?;
                 eprintln!("#vm#meta#{meta}#");
+                Ok(())
+            }
+            Self::ObjBackupFull { url, token } => {
+                let client =
+                    voidmerge::http_client::HttpClient::new(Default::default());
+                client.obj_backup_full(&url, &token).await?;
+                eprintln!("#vm#obj-backup-full#complete#");
+                Ok(())
+            }
+            Self::ObjRestoreFull { url, token } => {
+                let client =
+                    voidmerge::http_client::HttpClient::new(Default::default());
+                client.obj_restore_full(&url, &token).await?;
+                eprintln!("#vm#obj-restore-full#complete#");
                 Ok(())
             }
             Self::ObjBackup {

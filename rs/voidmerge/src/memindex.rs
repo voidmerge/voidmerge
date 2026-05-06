@@ -75,9 +75,12 @@ impl<Info: Clone> MemIndex<Info> {
     pub fn list(
         &self,
         prefix: Arc<str>,
-        created_gt: f64,
+        mut created_gt: f64,
         limit: u32,
     ) -> Vec<Arc<str>> {
+        if !created_gt.is_finite() {
+            created_gt = f64::MIN;
+        }
         let mut out = Vec::new();
         let mut last_created_secs = 0.0;
         for (meta, _info) in self.map.iter(created_gt, f64::MAX) {
@@ -228,11 +231,24 @@ impl<T> OrderMap<T> {
         self.map.get(pfx).map(|v| &v.1)
     }
 
-    pub fn iter(&self, start: f64, end: f64) -> impl Iterator<Item = &T> {
-        self.order
-            .range(Order(start)..Order(end))
-            .flat_map(|(_, set)| {
-                set.iter().filter_map(|pfx| self.map.get(pfx).map(|v| &v.1))
-            })
+    pub fn iter(
+        &self,
+        mut start: f64,
+        mut end: f64,
+    ) -> impl Iterator<Item = &T> {
+        if !start.is_finite() {
+            start = f64::MIN;
+        }
+        if !end.is_finite() {
+            end = f64::MAX;
+        }
+        let start = Order(start);
+        let mut end = Order(end);
+        if end < start {
+            end = start;
+        }
+        self.order.range(start..end).flat_map(|(_, set)| {
+            set.iter().filter_map(|pfx| self.map.get(pfx).map(|v| &v.1))
+        })
     }
 }
