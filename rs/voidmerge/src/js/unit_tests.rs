@@ -63,3 +63,13 @@ async fn js_unit_test_sanity() {
 async fn js_unit_test_encoding() {
     exec(include_str!("unit_tests/encoding.js")).await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn js_unit_test_timeout() {
+    exec(include_str!("unit_tests/timeout.js")).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn js_unit_test_interval() {
+    exec(include_str!("unit_tests/interval.js")).await;
+}
