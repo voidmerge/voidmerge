@@ -73,3 +73,13 @@ async fn js_unit_test_timeout() {
 async fn js_unit_test_interval() {
     exec(include_str!("unit_tests/interval.js")).await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn js_unit_test_url() {
+    exec(include_str!("unit_tests/url.js")).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn js_unit_test_console() {
+    exec(include_str!("unit_tests/console.js")).await;
+}
