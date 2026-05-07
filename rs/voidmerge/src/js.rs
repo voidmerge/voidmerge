@@ -1038,6 +1038,9 @@ impl JsThread {
 }
 
 #[cfg(test)]
+mod unit_tests;
+
+#[cfg(test)]
 mod test {
     use super::*;
 
