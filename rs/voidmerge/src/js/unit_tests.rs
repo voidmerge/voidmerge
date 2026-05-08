@@ -83,3 +83,8 @@ async fn js_unit_test_url() {
 async fn js_unit_test_console() {
     exec(include_str!("unit_tests/console.js")).await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn js_unit_test_crypto() {
+    exec(include_str!("unit_tests/crypto.js")).await;
+}
