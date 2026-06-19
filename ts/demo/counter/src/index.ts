@@ -2,6 +2,7 @@ import * as VM from "@voidmerge/voidmerge-code";
 
 const META_PAGE = VM.ObjMeta.fromParts({ appPath: "page" });
 const META_CRON = VM.ObjMeta.fromParts({ appPath: "cron" });
+const META_RM = VM.ObjMeta.fromParts({ appPath: "rm" });
 
 /**
  * Get current counter value.
@@ -23,6 +24,13 @@ async function getCurrent(meta: VM.ObjMeta): Promise<number> {
 
   // parse current value
   return parseInt(new TextDecoder().decode(data));
+}
+
+/**
+ * Remove a counter.
+ */
+async function remove(meta: VM.ObjMeta): Promise<void> {
+  await VM.objRm({ meta });
 }
 
 /**
@@ -60,8 +68,8 @@ VM.onCron(async (_req) => {
 VM.onObjCheck(async (req) => {
   const appPath = req.meta.appPath();
 
-  // path can only be "cron" or "page".
-  if (appPath !== "cron" && appPath !== "page") {
+  // path can only be "cron", "page" or "rm".
+  if (appPath !== "cron" && appPath !== "page" && appPath !== "rm") {
     throw new Error("invalid appPath");
   }
 
@@ -79,6 +87,12 @@ VM.onObjCheck(async (req) => {
 // Main api handler.
 VM.onFn(async (req) => {
   try {
+    // delete rm
+    await remove(META_RM);
+
+    // increment rm
+    const rmCount = await increment(META_RM);
+
     // increment the page count
     const pageCount = await increment(META_PAGE);
 
@@ -86,7 +100,7 @@ VM.onFn(async (req) => {
     const cronCount = await getCurrent(META_CRON);
 
     // generate display text
-    const output = `pageLoadCount: ${pageCount}\ncronMinuteCount: ${cronCount}\n`;
+    const output = `rmCount: ${rmCount}\npageLoadCount: ${pageCount}\ncronMinuteCount: ${cronCount}\n`;
 
     // return the response
     return new VM.ResponseFnOk().text(output);
