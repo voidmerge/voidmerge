@@ -692,7 +692,7 @@ impl Arg {
                     voidmerge::http_client::HttpClient::new(Default::default());
                 loop {
                     let res = client
-                        .obj_list(&url, &token, &context, "", created_gt, 1000)
+                        .obj_list(&url, &context, &token, "", created_gt, 1000)
                         .await?;
                     if res.is_empty() {
                         break;
@@ -704,7 +704,7 @@ impl Arg {
                         }
 
                         let (meta, data) = client
-                            .obj_get(&url, &token, &context, r.app_path())
+                            .obj_get(&url, &context, &token, r.app_path())
                             .await?;
                         println!("{meta}");
 
@@ -744,7 +744,7 @@ impl Arg {
                 let client =
                     voidmerge::http_client::HttpClient::new(Default::default());
                 for idx in 0..file.len() {
-                    let (tmp, meta, data) =
+                    let (tmp, mut meta, data) =
                         tokio::task::spawn_blocking(move || {
                             let mut out = Vec::new();
                             {
@@ -763,7 +763,14 @@ impl Arg {
                     println!("{meta}");
                     file = tmp;
                     if meta.ctx() != &*context {
-                        return Err(Error::other("context mismatch"));
+                        meta = voidmerge::obj::ObjMeta::new_context(
+                            &context,
+                            meta.app_path(),
+                            meta.created_secs(),
+                            meta.expires_secs(),
+                            meta.byte_length() as f64,
+                        );
+                        println!(" -> {meta}");
                     }
                     client.obj_put(&url, &token, meta, data).await?;
                 }
