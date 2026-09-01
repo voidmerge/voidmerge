@@ -51,7 +51,7 @@ impl HttpClient {
         let mut url: reqwest::Url =
             url.parse().map_err(std::io::Error::other)?;
         url.set_path("ctx-setup");
-        let token = format!("Bearer {}", &token);
+        let token = format!("Bearer {}", token);
         let res = self
             .client
             .put(url)
@@ -77,8 +77,8 @@ impl HttpClient {
     ) -> Result<()> {
         let mut url: reqwest::Url =
             url.parse().map_err(std::io::Error::other)?;
-        url.set_path(&format!("{}/_vm_/config", &ctx_config.ctx));
-        let token = format!("Bearer {}", &token);
+        url.set_path(&format!("{}/_vm_/config", ctx_config.ctx));
+        let token = format!("Bearer {}", token);
         let res = self
             .client
             .put(url)
@@ -114,7 +114,7 @@ impl HttpClient {
             .clear()
             .append_pair("created-gt", &created_gt.to_string())
             .append_pair("limit", &limit.to_string());
-        let token = format!("Bearer {}", &token);
+        let token = format!("Bearer {}", token);
         let res = self
             .client
             .get(url)
@@ -150,7 +150,7 @@ impl HttpClient {
         let mut url: reqwest::Url =
             url.parse().map_err(std::io::Error::other)?;
         url.set_path(&format!("{ctx}/_vm_/obj-get/{app_path}"));
-        let token = format!("Bearer {}", &token);
+        let token = format!("Bearer {}", token);
         let res = self
             .client
             .get(url)
@@ -190,7 +190,7 @@ impl HttpClient {
         iter.next();
         let rest = iter.next().unwrap_or("");
         url.set_path(&format!("{ctx}/_vm_/obj-put/{rest}"));
-        let token = format!("Bearer {}", &token);
+        let token = format!("Bearer {}", token);
         let res = self
             .client
             .put(url)
@@ -213,7 +213,7 @@ impl HttpClient {
         let mut url: reqwest::Url =
             url.parse().map_err(std::io::Error::other)?;
         url.set_path("_vm_/obj-backup-full");
-        let token = format!("Bearer {}", &token);
+        let token = format!("Bearer {}", token);
         let res = self
             .client
             .get(url)
@@ -234,7 +234,7 @@ impl HttpClient {
         let mut url: reqwest::Url =
             url.parse().map_err(std::io::Error::other)?;
         url.set_path("_vm_/obj-restore-full");
-        let token = format!("Bearer {}", &token);
+        let token = format!("Bearer {}", token);
         let res = self
             .client
             .get(url)
