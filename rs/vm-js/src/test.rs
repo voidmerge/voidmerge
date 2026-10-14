@@ -35,6 +35,36 @@ async fn sanity() {
 }
 
 #[tokio::test]
+async fn btoa() {
+    let extension_cb: ExtensionCb = Arc::new(|| {
+        vec![
+            deno_webidl::deno_webidl::init(),
+            deno_web::deno_web::init(
+                Arc::new(deno_web::BlobStore::default()),
+                None,
+                true,
+                deno_web::InMemoryBroadcastChannel::default(),
+            ),
+        ]
+    });
+
+    let j: VmJs<String, String> = VmJs::new(VmJsConfig {
+        code: "function bob(a) { return btoa(a); }".into(),
+        extension_cb,
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+
+    let res = j
+        .call("bob", "foo".to_string(), std::time::Duration::from_secs(10))
+        .await
+        .unwrap();
+
+    assert_eq!("Zm9v", res);
+}
+
+#[tokio::test]
 async fn timeout() {
     let j: VmJs<usize, usize> = VmJs::new(VmJsConfig {
         code: "function bob(a) { while (true) {}; return a + 1; }".into(),
