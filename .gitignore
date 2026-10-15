@@ -4,7 +4,7 @@
 *.gif
 target
 node_modules
-docs
+/docs
 /ts/demo/todo-leader/dist
 /ts/demo/counter/dist
 /ts/demo/post-quantum/dist
