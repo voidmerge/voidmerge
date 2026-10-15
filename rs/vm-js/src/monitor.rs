@@ -29,7 +29,7 @@ pub fn register_monitor(
     cancel: tokio_util::sync::CancellationToken,
     isolate_handle: deno_core::v8::IsolateHandle,
     max_mem_bytes: usize,
-    ab_bytes: Arc<std::sync::atomic::AtomicUsize>,
+    ab_budget: Arc<crate::alloc::AllocBudget>,
 ) -> MonitorGuard {
     let uniq = get_uniq();
 
@@ -39,7 +39,7 @@ pub fn register_monitor(
             cancel,
             isolate_handle,
             max_mem_bytes,
-            ab_bytes,
+            ab_budget,
             timeout_at: Mutex::new(None),
         }),
     );
@@ -74,7 +74,7 @@ struct Monitor {
     cancel: tokio_util::sync::CancellationToken,
     isolate_handle: deno_core::v8::IsolateHandle,
     max_mem_bytes: usize,
-    ab_bytes: Arc<std::sync::atomic::AtomicUsize>,
+    ab_budget: Arc<crate::alloc::AllocBudget>,
     timeout_at: Mutex<Option<std::time::Instant>>,
 }
 
@@ -159,9 +159,17 @@ unsafe extern "C" fn mem_interrupt_cb(
         return;
     }
 
+    // if the arraybuffer allocator has already rejected an allocation,
+    // the isolate is over its quota and must be torn down
+    if mon.ab_budget.is_over() {
+        mon.cancel.cancel();
+        isolate.terminate_execution();
+        return;
+    }
+
     // finally check to see if we are over on our memory quota
     let stats = isolate.get_heap_statistics();
-    let ab_used = mon.ab_bytes.load(std::sync::atomic::Ordering::Relaxed);
+    let ab_used = mon.ab_budget.used();
     let total = stats.total_heap_size() + ab_used;
 
     if total > mon.max_mem_bytes {

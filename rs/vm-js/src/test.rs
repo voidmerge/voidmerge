@@ -304,7 +304,52 @@ async fn array_buffer_mem_quota() {
         .await
         .unwrap_err();
 
-    assert!(res.to_string().contains("terminated"), "{res:?}");
+    // memory is enforced at allocation time, so the isolate is torn down
+    // as soon as it tries to exceed its quota
+    assert!(
+        res.to_string().contains("array buffer memory quota"),
+        "{res:?}"
+    );
+
+    // the isolate is gone, subsequent calls must fail
+    let res = j
+        .call("bob", 42, std::time::Duration::from_millis(10))
+        .await
+        .unwrap_err();
+
+    assert!(res.to_string().contains("shut down"), "{res:?}");
+}
+
+/// Regression test for a single large allocation overshooting the quota.
+/// Before enforcement moved into the allocator, a script could allocate
+/// hundreds of MiB in one statement before the 100ms monitor thread
+/// noticed.
+#[tokio::test]
+async fn array_buffer_single_alloc_rejected() {
+    let j: VmJs<usize, usize> = VmJs::new(VmJsConfig {
+        code: r#"function bob(a) {
+            const one = new Uint8Array(256 * 1024 * 1024);
+            one.fill(1);
+            return a + 1;
+        }"#
+        .into(),
+        max_mem_bytes: 16 * 1024 * 1024,
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+
+    let res = j
+        .call("bob", 42, std::time::Duration::from_millis(500))
+        .await
+        .unwrap_err();
+
+    // the 256 MiB allocation must be rejected up-front rather than being
+    // allowed to balloon the process
+    assert!(
+        res.to_string().contains("array buffer memory quota"),
+        "{res:?}"
+    );
 }
 
 #[tokio::test]

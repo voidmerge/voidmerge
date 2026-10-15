@@ -189,6 +189,8 @@ multi-tenant use; 3.4 is the durable backstop.
 
 ### 3.1 [CRITICAL] Enforce the ArrayBuffer budget inside the allocator
 
+**Status: IMPLEMENTED 2026-10-15.**
+
 Goal: no single allocation (or burst) can exceed the quota, even
 momentarily.
 
@@ -216,6 +218,33 @@ Tests to add:
   the 16 MiB → 280 MiB overshoot).
 - Repeated small allocations terminate near the quota.
 - Legitimate workloads near the quota still succeed.
+
+**Implementation notes (2026-10-15):**
+
+- `alloc.rs`: replaced the raw `Arc<AtomicUsize>` handle with a public
+  `AllocBudget { used, limit, over }`. `new_tracking_allocator(limit)` now
+  takes the quota. `ab_alloc_zeroed`/`ab_alloc_uninit` call
+  `AllocBudget::reserve(len)` (an atomic `fetch_update` CAS) before touching
+  the system allocator, and `ab_free` calls `release`. A rejected
+  reservation latches `over` and the callback returns `null_mut()`; V8
+  surfaces this as `RangeError: Array buffer allocation failed` (verified —
+  it does **not** abort the process).
+- `js_thread.rs`: the allocator quota is `config.max_mem_bytes`. After each
+  call, if `ab_budget.is_over()`, the isolate is treated as fatal and the
+  thread exits with `"javascript exceeded its array buffer memory quota"`,
+  even if the script caught the error and returned normally.
+- `monitor.rs`: stores `Arc<AllocBudget>`; `mem_interrupt_cb` now checks
+  `is_over()` as a backstop and uses `used()` for the combined heap+AB
+  check.
+- Interaction with the V8 heap limit (deferred): the allocator quota is the
+  full `max_mem_bytes`, so AB alone cannot exceed it, but the combined
+  heap+AB total can still transiently reach ~2× before the monitor samples.
+  This is bounded and non-catastrophic; tightening it (e.g. a shared
+  combined budget or heap-aware reserve) remains open. See also 3.5.
+- Tests added: `alloc::tests::{reserve_enforces_limit,
+  reserve_rejects_single_oversized_alloc, reserve_handles_overflow}` and
+  `test::array_buffer_single_alloc_rejected`; `test::array_buffer_mem_quota`
+  updated to expect the fatal quota error. All 13 tests pass.
 
 ### 3.2 [CRITICAL] Bound await time at the event-loop level
 

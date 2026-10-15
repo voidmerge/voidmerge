@@ -60,9 +60,14 @@ pub async fn js_thread_loop_async<Input, Output>(
     Input: 'static + Send + serde::Serialize,
     Output: 'static + Send + serde::de::DeserializeOwned,
 {
-    // Set up our allocator for tracking array buffer allocations
-    // Also returns an atomic for accessing that allocation info.
-    let (ab_bytes, ab_allocator) = crate::alloc::new_tracking_allocator();
+    // Set up our allocator for tracking and enforcing array buffer
+    // allocations. Also returns a budget handle for accessing that
+    // allocation info. The quota here is the full `max_mem_bytes`; the
+    // monitor thread enforces the combined (heap + arraybuffer) limit,
+    // while this bounds any single arraybuffer allocation so it can't
+    // wildly overshoot before the monitor samples.
+    let (ab_budget, ab_allocator) =
+        crate::alloc::new_tracking_allocator(config.max_mem_bytes);
 
     // Get the array of deno_core extensions that will be loaded.
     let extensions = (config.extension_cb)();
@@ -102,7 +107,7 @@ pub async fn js_thread_loop_async<Input, Output>(
         cancel,
         isolate_handle,
         config.max_mem_bytes,
-        ab_bytes.clone(),
+        ab_budget.clone(),
     );
     let mon_uniq = _mon_g.0;
 
@@ -146,9 +151,21 @@ pub async fn js_thread_loop_async<Input, Output>(
         }
 
         // execute the actual javascript call, responding correctly
-        match exec_call(&mut js_runtime, fn_name, input, timeout, mon_uniq)
-            .await
-        {
+        let call_res =
+            exec_call(&mut js_runtime, fn_name, input, timeout, mon_uniq).await;
+
+        // if the arraybuffer allocator rejected an allocation at any point
+        // during the call, the isolate is over its memory quota and must be
+        // torn down, even if the javascript caught the error and returned
+        // normally
+        if ab_budget.is_over() {
+            let _ = resp.send(Err(Fatal(std::io::Error::other(
+                "javascript exceeded its array buffer memory quota",
+            ))));
+            return;
+        }
+
+        match call_res {
             Ok(output) => {
                 let _ = resp.send(Ok(output));
             }
