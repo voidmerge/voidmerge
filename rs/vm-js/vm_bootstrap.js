@@ -106,3 +106,33 @@ for (const [key, value, enumerable, configurable, writeable] of WEB_LOAD) {
     writeable,
   });
 }
+
+const crypto = core.loadExtScript("ext:deno_crypto/00_crypto.js");
+
+Object.defineProperty(globalThis, "CryptoKey", {
+  value: crypto.CryptoKey,
+  enumerable: false,
+  configurable: true,
+  writable: true,
+});
+
+Object.defineProperty(globalThis, "crypto", {
+  value: crypto.crypto,
+  enumerable: false,
+  configurable: true,
+  writable: false,
+});
+
+Object.defineProperty(globalThis, "Crypto", {
+  value: crypto.Crypto,
+  enumerable: false,
+  configurable: true,
+  writable: true,
+});
+
+Object.defineProperty(globalThis, "SubtleCrypto", {
+  value: crypto.SubtleCrypto,
+  enumerable: false,
+  configurable: true,
+  writable: true,
+});
