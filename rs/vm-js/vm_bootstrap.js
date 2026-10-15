@@ -98,12 +98,12 @@ const WEB_LOAD = [
   ["structuredClone", messagePort.structuredClone, true, true, true],
 ];
 
-for (const [key, value, enumerable, configurable, writeable] of WEB_LOAD) {
+for (const [key, value, enumerable, configurable, writable] of WEB_LOAD) {
   Object.defineProperty(globalThis, key, {
     value,
     enumerable,
     configurable,
-    writeable,
+    writable,
   });
 }
 

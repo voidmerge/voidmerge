@@ -37,7 +37,7 @@ async fn sanity() {
 async fn exec_ext_test(code: &str) {
     deno_core::extension!(
         vm_bootstrap,
-        deps = [deno_webidl],
+        deps = [deno_webidl, deno_web, deno_crypto],
         esm_entry_point = "ext:vm_bootstrap/vm_bootstrap.js",
         esm = ["vm_bootstrap.js"],
     );
@@ -67,6 +67,8 @@ async fn exec_ext_test(code: &str) {
     j.call("test", (), std::time::Duration::from_secs(10))
         .await
         .unwrap();
+
+    j.blocking_shutdown();
 }
 
 #[tokio::test]
