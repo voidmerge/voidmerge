@@ -16,3 +16,4 @@ docs
 /ts/voidmerge-code/dist
 /ts/voidmerge-code/docs
 tsconfig.tsbuildinfo
+opencode.json
