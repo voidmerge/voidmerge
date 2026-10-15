@@ -147,6 +147,9 @@ OS threads and V8 isolates. A thread stuck in an uninterruptible native op
 
 ### 2.6 [MEDIUM] Monitor callback locks a global mutex from an interrupt handler
 
+**Status: FIXED 2026-10-15 (see 3.7).** The description below documents the
+pre-fix behavior.
+
 `mem_interrupt_cb` calls `mon_map()` (`monitor.rs:136`), taking a global
 `Mutex<HashMap<...>>`. The module's own comment (`monitor.rs:83-85`) warns
 against calling `mon_map()` in a JS execution context, yet the interrupt
@@ -185,8 +188,9 @@ next call.
 
 - `Layout` alignment hardcoded to 8 in `alloc.rs:14`; the comment
   acknowledges this. Confirm it meets V8's requirement.
-- `Instant::now() + timeout` (`monitor.rs:54`) panics on overflow for
-  pathological durations.
+- ~~`Instant::now() + timeout` (`monitor.rs:54`) panics on overflow for
+  pathological durations.~~ Fixed 2026-10-15: `set_timeout` now uses
+  `checked_add` and treats overflow as "never" (see 3.7).
 - `ab_bytes` uses `Ordering::Relaxed` (fine for approximate accounting).
 
 ## 3. Prioritized TODO
@@ -367,11 +371,45 @@ Goal: a real, unbypassable ceiling for untrusted code.
 
 ### 3.7 [MEDIUM] Make the monitor callback lock-free / self-contained
 
+**Status: IMPLEMENTED 2026-10-15.**
+
 - Avoid taking the global `mon_map` mutex inside `mem_interrupt_cb`
   (`monitor.rs:136`). Pass the monitor state to the callback directly (the
   `data` pointer already carries the `uniq`; consider carrying an
   `Arc<Monitor>` or a raw pointer to it), or use an atomic snapshot.
 - Remove or correct the stale warning at `monitor.rs:83-85`.
+
+**Implementation notes (2026-10-15):**
+
+- `mon_thread` now passes `Arc::as_ptr(&mon) as *mut c_void` as the interrupt
+  data instead of a `uniq`. `mem_interrupt_cb` reconstructs `&Monitor`
+  directly from the pointer; it no longer calls `mon_map()` and takes no
+  global lock.
+- `Monitor.timeout_at` changed from `Mutex<Option<Instant>>` to an
+  `AtomicU64` holding the deadline as nanoseconds since a per-monitor
+  `start: Instant` (`0` = no active timeout). `set_timeout`/`clear_timeout`
+  now store atomically and the callback reads via a lock-free `is_timed_out`
+  helper. The callback is now fully lock-free.
+- This also fixes the `Instant::now() + timeout` overflow (2.10): `set_timeout`
+  uses `checked_add` and stores the `u64::MAX` sentinel ("never") on overflow.
+- **Pointer-lifetime safety** (documented in a `// SAFETY:` comment): the
+  data pointer is only dereferenced by the callback, which runs solely on the
+  isolate thread while it executes javascript. The monitor map holds the
+  `Arc<Monitor>` for the entire lifetime of that thread's call loop, so the
+  pointer is valid whenever a callback can run. After the guard removes the
+  map entry the thread no longer executes JS, and `request_interrupt` on a
+  destroyed isolate is a no-op whose queued interrupts are discarded with the
+  isolate.
+- The `mon_map` doc comment was corrected: it is now only touched outside JS
+  execution (registration/teardown, timeout set/clear, `timed_out`,
+  `mark_timed_out`, and the monitor thread).
+- Tests added: `monitor::tests::{nanos_since_is_monotonic_and_saturating,
+  is_timed_out_handles_none_and_deadlines}`. The existing `timeout`,
+  `js_mem_quota`, and `array_buffer_mem_quota` tests still exercise the
+  callback end-to-end. All 18 tests pass.
+- A direct deadlock regression test is not practical: no code path currently
+  holds `mon_map` across a V8 call, so the failure isn't reproducible without
+  inventing such a path; the fix is structural.
 
 ### 3.8 [LOW] Make the monitor deadline-driven and demand-based
 
@@ -384,13 +422,15 @@ Goal: a real, unbypassable ceiling for untrusted code.
 
 ### 3.9 [LOW] Fix timeout error classification and misc
 
-**Status: PARTIALLY DONE 2026-10-15.** The timeout classification item was
-completed alongside 3.2; the rest remains.
+**Status: PARTIALLY DONE 2026-10-15.** The timeout classification and
+`Instant` overflow items were completed alongside 3.2/3.7; the alignment
+reconfirmation remains.
 
 - ~~Report timeouts distinctly and consistently; don't surface a cancelled
   isolate as `NonFatal` (2.9).~~ Done: both timeout paths now return a fatal
   `"javascript execution timed out"` (see 3.2 implementation notes).
-- Guard `Instant::now() + timeout` against overflow (`monitor.rs:54`).
+- ~~Guard `Instant::now() + timeout` against overflow (`monitor.rs:54`).~~
+  Done: `set_timeout` uses `checked_add` with a "never" sentinel (see 3.7).
 - Reconfirm the allocator alignment constant (`alloc.rs:14`).
 
 ## 4. How the empirical findings were produced
@@ -415,9 +455,11 @@ clean. To reproduce:
 1. ~~3.1 (allocator budget)~~ — **done 2026-10-15**.
 2. ~~3.2 (await-time bounding)~~ — **done 2026-10-15** (plus the timeout
    classification part of 3.9).
-3. 3.3 (global budget + thread cap).
-4. 3.4 (process isolation backstop).
-5. 3.5–3.9 as follow-ups.
+3. ~~3.7 (lock-free monitor callback)~~ — **done 2026-10-15** (plus the
+   `Instant` overflow part of 3.9).
+4. 3.3 (global budget + thread cap).
+5. 3.4 (process isolation backstop).
+6. 3.5, 3.6, 3.8, and the remainder of 3.9 as follow-ups.
 
 Add the regression tests from 3.1 and 3.2 alongside the fixes so the two
 CRITICAL gaps cannot silently reappear.
