@@ -41,6 +41,7 @@ pub fn register_monitor(
             max_mem_bytes,
             ab_budget,
             timeout_at: Mutex::new(None),
+            timed_out: std::sync::atomic::AtomicBool::new(false),
         }),
     );
 
@@ -51,6 +52,9 @@ pub fn register_monitor(
 pub fn set_timeout(mon_uniq: usize, timeout: std::time::Duration) {
     let mon = mon_map().get(&mon_uniq).cloned();
     if let Some(mon) = mon {
+        // a fresh operation clears any previous timeout result
+        mon.timed_out
+            .store(false, std::sync::atomic::Ordering::Relaxed);
         *mon.timeout_at.lock().unwrap() =
             Some(std::time::Instant::now() + timeout);
     }
@@ -61,6 +65,27 @@ pub fn clear_timeout(mon_uniq: usize) {
     let mon = mon_map().get(&mon_uniq).cloned();
     if let Some(mon) = mon {
         *mon.timeout_at.lock().unwrap() = None;
+    }
+}
+
+/// Returns true if the active operation on the given monitor has been
+/// terminated by a timeout.
+pub fn timed_out(mon_uniq: usize) -> bool {
+    let mon = mon_map().get(&mon_uniq).cloned();
+    mon.map(|mon| mon.timed_out.load(std::sync::atomic::Ordering::Relaxed))
+        .unwrap_or(false)
+}
+
+/// Mark the given monitor as timed out and tear down its isolate. This is
+/// used by the event-loop-level timeout (which can catch parked awaits that
+/// the monitor interrupt cannot reach).
+pub fn mark_timed_out(mon_uniq: usize) {
+    let mon = mon_map().get(&mon_uniq).cloned();
+    if let Some(mon) = mon {
+        mon.timed_out
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        mon.cancel.cancel();
+        mon.isolate_handle.terminate_execution();
     }
 }
 
@@ -76,6 +101,11 @@ struct Monitor {
     max_mem_bytes: usize,
     ab_budget: Arc<crate::alloc::AllocBudget>,
     timeout_at: Mutex<Option<std::time::Instant>>,
+    /// Latched true when the current operation timed out. Set by the
+    /// monitor interrupt for CPU-bound code, or by `mark_timed_out` for
+    /// parked awaits. Lets the caller report a clear, fatal timeout error
+    /// instead of a generic "execution terminated" non-fatal error.
+    timed_out: std::sync::atomic::AtomicBool,
 }
 
 /// Access the map containing active js threads to monitor.
@@ -154,6 +184,8 @@ unsafe extern "C" fn mem_interrupt_cb(
     if let Some(timeout_at) = *mon.timeout_at.lock().unwrap()
         && timeout_at <= now
     {
+        mon.timed_out
+            .store(true, std::sync::atomic::Ordering::Relaxed);
         mon.cancel.cancel();
         isolate.terminate_execution();
         return;

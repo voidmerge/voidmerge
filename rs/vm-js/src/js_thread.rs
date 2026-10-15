@@ -224,42 +224,77 @@ where
 
     // Call via typed binding; drive the event loop while the async fn runs
     let call = js_runtime.call_with_args(&js_fn, &[input]);
-    let event_loop_result = js_runtime
-        .with_event_loop_promise(call, Default::default())
-        .await;
+
+    // Bound the whole call at the event-loop level. The monitor interrupt
+    // cannot reach a parked event loop (e.g. `await` on a timer or async
+    // op), so this tokio timer is the authoritative await-time bound. The
+    // monitor remains the bound for CPU-bound code, which never yields to
+    // the executor and therefore never lets this timer fire.
+    let event_loop_result = tokio::time::timeout(
+        timeout,
+        js_runtime.with_event_loop_promise(call, Default::default()),
+    )
+    .await;
 
     crate::monitor::clear_timeout(mon_uniq);
 
+    let event_loop_result = match event_loop_result {
+        Ok(res) => res,
+        Err(_elapsed) => {
+            // timed out while parked; a timeout is fatal because the
+            // isolate could hold zombie promises that would infect future
+            // calls
+            crate::monitor::mark_timed_out(mon_uniq);
+            return Err(JsError::Fatal(std::io::Error::other(
+                "javascript execution timed out",
+            )));
+        }
+    };
+
     let output = match event_loop_result {
         Ok(output) => output,
-        Err(err) => match err.into_kind() {
-            deno_core::error::CoreErrorKind::Js(err) => {
-                return Err(JsError::non_fatal("javascript execution error")(
-                    err,
-                ));
+        Err(err) => {
+            // normalize a monitor-enforced timeout (CPU-bound code that
+            // the tokio timer above could not interrupt) into a clear,
+            // fatal timeout error
+            if crate::monitor::timed_out(mon_uniq) {
+                return Err(JsError::Fatal(std::io::Error::other(
+                    "javascript execution timed out",
+                )));
             }
-            deno_core::error::CoreErrorKind::JsBox(err) => {
-                return Err(JsError::non_fatal("javascript execution error")(
-                    err,
-                ));
+            match err.into_kind() {
+                deno_core::error::CoreErrorKind::Js(err) => {
+                    return Err(JsError::non_fatal(
+                        "javascript execution error",
+                    )(err));
+                }
+                deno_core::error::CoreErrorKind::JsBox(err) => {
+                    return Err(JsError::non_fatal(
+                        "javascript execution error",
+                    )(err));
+                }
+                deno_core::error::CoreErrorKind::Io(err) => {
+                    return Err(JsError::non_fatal("javascript io error")(err));
+                }
+                deno_core::error::CoreErrorKind::Data(err) => {
+                    return Err(JsError::non_fatal("javascript data error")(
+                        err,
+                    ));
+                }
+                deno_core::error::CoreErrorKind::Url(err) => {
+                    return Err(JsError::non_fatal("javascript url error")(
+                        err,
+                    ));
+                }
+                // NOTE - more of these deno_errors may be non-fatal
+                //        if so, they should be moved above this comment
+                //        all other errors are treated as fatal
+                //        and this isolate thread must shut down
+                err => {
+                    return Err(JsError::fatal("error executing v8 call")(err));
+                }
             }
-            deno_core::error::CoreErrorKind::Io(err) => {
-                return Err(JsError::non_fatal("javascript io error")(err));
-            }
-            deno_core::error::CoreErrorKind::Data(err) => {
-                return Err(JsError::non_fatal("javascript data error")(err));
-            }
-            deno_core::error::CoreErrorKind::Url(err) => {
-                return Err(JsError::non_fatal("javascript url error")(err));
-            }
-            // NOTE - more of these deno_errors may be non-fatal
-            //        if so, they should be moved above this comment
-            //        all other errors are treated as fatal
-            //        and this isolate thread must shut down
-            err => {
-                return Err(JsError::fatal("error executing v8 call")(err));
-            }
-        },
+        }
     };
 
     let output = {

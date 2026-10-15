@@ -90,6 +90,9 @@ crypto, etc.). Real scripts touch their buffers.
 
 ### 2.2 [CRITICAL] Timeouts do not bound async awaits
 
+**Status: FIXED 2026-10-15 (see 3.2).** The description below documents the
+pre-fix behavior.
+
 The timeout is only evaluated inside the V8 interrupt callback, which only
 runs while the isolate is **executing JS**. While JS is parked awaiting a
 promise, no JS runs, so the callback never fires. The 100 ms monitor thread
@@ -167,6 +170,10 @@ Meanwhile the monitor requests an interrupt on **every** isolate **every**
 interrupt storm with no benefit.
 
 ### 2.9 [LOW] Timeout result is misclassified
+
+**Status: FIXED 2026-10-15 (partial 3.9, see 3.2).** Timeouts now surface as
+a fatal `"javascript execution timed out"` on both the parked-await and
+CPU-bound paths.
 
 A timeout surfaces as `NonFatal("execution terminated")` (the monitor sets
 `cancel` then terminates at `monitor.rs:157-158`; the JS error is mapped to
@@ -248,6 +255,8 @@ Tests to add:
 
 ### 3.2 [CRITICAL] Bound await time at the event-loop level
 
+**Status: IMPLEMENTED 2026-10-15.** Approach #2 was chosen.
+
 Goal: a call cannot exceed its timeout merely because it is awaiting a
 promise/timer/op.
 
@@ -276,6 +285,36 @@ Tests to add:
 - `await new Promise(r => setTimeout(r, 5000))` with a 100 ms timeout →
   must return in ~100 ms (regression for the observed 5.0 s).
 - Existing CPU-bound `while(true)` timeout still works.
+
+**Implementation notes (2026-10-15):**
+
+- Chose **approach #2** for simplicity: `exec_call` now wraps
+  `with_event_loop_promise(...)` in `tokio::time::timeout(timeout, ...)`
+  (`js_thread.rs`). When JS parks on an `await`, the event-loop future
+  returns `Poll::Pending`, the JS-thread task yields to the executor, and
+  the tokio timer fires at the deadline (typically ~1 ms granularity).
+- The monitor interrupt path is retained and remains the enforcement for
+  **CPU-bound** code, which never yields to the executor, so the tokio
+  timer cannot fire. The two mechanisms are complementary: tokio bounds
+  parked awaits, the monitor bounds executing JS.
+- Drop-safety was confirmed by inspection of `deno_core`: on timeout the
+  in-flight event-loop future is dropped (no JS is executing at that
+  instant, because `Timeout::poll` returns `Elapsed` without re-polling),
+  then the `JsRuntime` is dropped. `InnerIsolateState::cleanup`
+  (`deno_core-0.412.0/runtime/jsruntime.rs:244`) calls
+  `pending_ops.shutdown()`, which aborts the op-driver task and clears the
+  pending-op queue, so dropping with pending timers/ops is supported.
+- **Partial 3.9:** a timeout now surfaces as a distinct, fatal
+  `"javascript execution timed out"` error on both paths. The monitor
+  latches a `timed_out` flag (`monitor.rs`) when it enforces a timeout, and
+  `exec_call` checks it after the event loop returns, so the CPU-bound path
+  no longer reports the confusing non-fatal `"execution terminated"`.
+  Memory-termination paths are unaffected (they do not set the flag).
+- Tests added: `test::timeout_async_op`, `test::timeout_set_timeout`,
+  `test::timeout_completes_before_deadline`; `test::timeout` updated to
+  expect `"timed out"`. The `deno_web` extension setup used by the
+  extension tests was factored into a `test::ext_cb()` helper. All 16 tests
+  pass.
 
 ### 3.3 [HIGH] Add a global budget and thread cap
 
@@ -345,8 +384,12 @@ Goal: a real, unbypassable ceiling for untrusted code.
 
 ### 3.9 [LOW] Fix timeout error classification and misc
 
-- Report timeouts distinctly and consistently; don't surface a cancelled
-  isolate as `NonFatal` (2.9).
+**Status: PARTIALLY DONE 2026-10-15.** The timeout classification item was
+completed alongside 3.2; the rest remains.
+
+- ~~Report timeouts distinctly and consistently; don't surface a cancelled
+  isolate as `NonFatal` (2.9).~~ Done: both timeout paths now return a fatal
+  `"javascript execution timed out"` (see 3.2 implementation notes).
 - Guard `Instant::now() + timeout` against overflow (`monitor.rs:54`).
 - Reconfirm the allocator alignment constant (`alloc.rs:14`).
 
@@ -369,8 +412,9 @@ clean. To reproduce:
 
 ## 5. Suggested implementation order
 
-1. 3.1 (allocator budget) — self-contained, high impact.
-2. 3.2 (await-time bounding) — self-contained, high impact.
+1. ~~3.1 (allocator budget)~~ — **done 2026-10-15**.
+2. ~~3.2 (await-time bounding)~~ — **done 2026-10-15** (plus the timeout
+   classification part of 3.9).
 3. 3.3 (global budget + thread cap).
 4. 3.4 (process isolation backstop).
 5. 3.5–3.9 as follow-ups.

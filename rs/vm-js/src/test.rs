@@ -34,7 +34,7 @@ async fn sanity() {
     j.blocking_shutdown();
 }
 
-async fn exec_ext_test(code: &str) {
+fn ext_cb() -> ExtensionCb {
     deno_core::extension!(
         vm_bootstrap,
         deps = [deno_webidl, deno_web, deno_crypto],
@@ -42,7 +42,7 @@ async fn exec_ext_test(code: &str) {
         esm = ["vm_bootstrap.js"],
     );
 
-    let extension_cb: ExtensionCb = Arc::new(|| {
+    Arc::new(|| {
         vec![
             deno_webidl::deno_webidl::init(),
             deno_web::deno_web::init(
@@ -54,11 +54,13 @@ async fn exec_ext_test(code: &str) {
             deno_crypto::deno_crypto::init(None),
             vm_bootstrap::init(),
         ]
-    });
+    })
+}
 
+async fn exec_ext_test(code: &str) {
     let j: VmJs<(), ()> = VmJs::new(VmJsConfig {
         code: code.into(),
-        extension_cb,
+        extension_cb: ext_cb(),
         ..Default::default()
     })
     .await
@@ -270,8 +272,10 @@ async fn timeout() {
         .await
         .unwrap_err();
 
-    // for now we get a terminated... would be nice to send up the timeout
-    assert!(res.to_string().contains("terminated"), "{res:?}");
+    // a CPU-bound loop never yields to the executor, so the tokio timer
+    // can't fire; the monitor interrupt terminates it and we normalize the
+    // result to a clear, fatal timeout
+    assert!(res.to_string().contains("timed out"), "{res:?}");
 
     let res = j
         .call("bob", 42, std::time::Duration::from_millis(10))
@@ -280,6 +284,118 @@ async fn timeout() {
 
     // second call we get shut down because the thread isn't even running
     assert!(res.to_string().contains("shut down"), "{res:?}");
+}
+
+/// Regression test for a timeout that the old monitor could not enforce:
+/// the isolate is parked awaiting a slow async op, so no JS is executing
+/// and the interrupt callback never fires. The event-loop-level tokio
+/// timeout must bound this.
+#[tokio::test]
+async fn timeout_async_op() {
+    #[deno_core::op2]
+    async fn my_sleep() -> Result<(), deno_core::error::CoreError> {
+        tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
+        Ok(())
+    }
+    deno_core::extension!(my_sleep_ext, ops = [my_sleep]);
+
+    let j: VmJs<usize, usize> = VmJs::new(VmJsConfig {
+        code: r#"async function bob(a) {
+            await Deno.core.ops.my_sleep();
+            return a + 1;
+        }"#
+        .into(),
+        extension_cb: Arc::new(|| vec![my_sleep_ext::init()]),
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+
+    let start = std::time::Instant::now();
+    let res = j
+        .call("bob", 42, std::time::Duration::from_millis(100))
+        .await
+        .unwrap_err();
+    let elapsed = start.elapsed();
+
+    assert!(res.to_string().contains("timed out"), "{res:?}");
+    assert!(
+        elapsed < std::time::Duration::from_secs(1),
+        "elapsed: {elapsed:?}"
+    );
+
+    // a timeout is fatal, the isolate is gone
+    let res = j
+        .call("bob", 42, std::time::Duration::from_millis(100))
+        .await
+        .unwrap_err();
+    assert!(res.to_string().contains("shut down"), "{res:?}");
+}
+
+/// Regression test for the old `setTimeout` escape hatch: a client could
+/// `await` a timer for days despite a short timeout.
+#[tokio::test]
+async fn timeout_set_timeout() {
+    let j: VmJs<(), ()> = VmJs::new(VmJsConfig {
+        code: r#"async function test() {
+            await new Promise((res) => setTimeout(res, 5000));
+        }"#
+        .into(),
+        extension_cb: ext_cb(),
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+
+    let start = std::time::Instant::now();
+    let res = j
+        .call("test", (), std::time::Duration::from_millis(100))
+        .await
+        .unwrap_err();
+    let elapsed = start.elapsed();
+
+    assert!(res.to_string().contains("timed out"), "{res:?}");
+    assert!(
+        elapsed < std::time::Duration::from_secs(1),
+        "elapsed: {elapsed:?}"
+    );
+
+    let res = j
+        .call("test", (), std::time::Duration::from_millis(100))
+        .await
+        .unwrap_err();
+    assert!(res.to_string().contains("shut down"), "{res:?}");
+}
+
+/// Guard against the event-loop timeout firing spuriously: a call that
+/// completes comfortably within its deadline must succeed.
+#[tokio::test]
+async fn timeout_completes_before_deadline() {
+    #[deno_core::op2]
+    async fn my_quick_sleep() -> Result<(), deno_core::error::CoreError> {
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        Ok(())
+    }
+    deno_core::extension!(my_quick_ext, ops = [my_quick_sleep]);
+
+    let j: VmJs<usize, usize> = VmJs::new(VmJsConfig {
+        code: r#"async function bob(a) {
+            await Deno.core.ops.my_quick_sleep();
+            return a + 1;
+        }"#
+        .into(),
+        extension_cb: Arc::new(|| vec![my_quick_ext::init()]),
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+
+    let res = j
+        .call("bob", 42, std::time::Duration::from_secs(5))
+        .await
+        .unwrap();
+
+    assert_eq!(43, res);
 }
 
 #[tokio::test]
