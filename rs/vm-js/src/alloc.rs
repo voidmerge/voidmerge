@@ -15,10 +15,20 @@ use std::ffi::c_void;
 use std::sync::Arc;
 use std::sync::atomic::{self, AtomicBool};
 
-/// alignment 8 could be overly permissive: V8's ArrayBuffer API
-/// doesn't require alignment stronger than 8 bytes for typed arrays,
-/// so this is fine in practice.
-const ALIGN: usize = 8;
+/// Alignment used for ArrayBuffer backing stores.
+///
+/// V8's `ArrayBuffer::Allocator` API imposes no alignment requirement: in
+/// `v8-array-buffer.h`, `Allocate`/`AllocateUninitialized` only specify the
+/// length and zero-initialization, with no mention of alignment. V8's
+/// default allocator is `malloc` (16-byte aligned on 64-bit platforms), so
+/// we align to 16 to match it and to comfortably cover every typed-array
+/// element type (the largest, `BigInt64Array`/`Float64Array`, is 8 bytes).
+/// This way we never hand V8 a more weakly-aligned buffer than it would get
+/// by default.
+const ALIGN: usize = 16;
+
+// `Layout::from_size_align` requires a power-of-two alignment.
+const _: () = assert!(ALIGN.is_power_of_two());
 
 /// Shared accounting for the ArrayBuffer allocator.
 ///
@@ -219,5 +229,35 @@ mod tests {
         assert!(b.reserve(usize::MAX));
         assert!(!b.reserve(1));
         assert!(b.is_over());
+    }
+
+    /// Reconfirms the allocator alignment (3.9): pointers handed back to V8
+    /// must be aligned to `ALIGN`, and `ab_free` must release the accounting.
+    #[test]
+    fn allocator_returns_aligned_zeroed_pointers() {
+        let b = AllocBudget::new(1024 * 1024);
+
+        for len in [1usize, 7, 8, 9, 63, 64, 1000] {
+            let p = unsafe { ab_alloc_zeroed(&b, len) };
+            assert!(!p.is_null(), "len {len} returned null");
+            assert_eq!(p as usize % ALIGN, 0, "len {len} misaligned");
+
+            // Allocate() promises zero-initialized memory.
+            let bytes =
+                unsafe { std::slice::from_raw_parts(p as *const u8, len) };
+            assert!(bytes.iter().all(|&x| x == 0), "len {len} not zeroed");
+
+            unsafe { ab_free(&b, p, len) };
+        }
+
+        // Uninitialized allocations must be aligned too (contents not read).
+        for len in [1usize, 15, 16, 17, 1000] {
+            let p = unsafe { ab_alloc_uninit(&b, len) };
+            assert!(!p.is_null(), "len {len} returned null");
+            assert_eq!(p as usize % ALIGN, 0, "len {len} misaligned");
+            unsafe { ab_free(&b, p, len) };
+        }
+
+        assert_eq!(b.used(), 0);
     }
 }

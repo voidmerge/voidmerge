@@ -186,8 +186,11 @@ next call.
 
 ### 2.10 [LOW] Misc
 
-- `Layout` alignment hardcoded to 8 in `alloc.rs:14`; the comment
-  acknowledges this. Confirm it meets V8's requirement.
+- ~~`Layout` alignment hardcoded to 8 in `alloc.rs:14`; the comment
+  acknowledges this. Confirm it meets V8's requirement.~~ Reconfirmed
+  2026-10-15: V8's `ArrayBuffer::Allocator` API imposes no alignment
+  requirement (`v8-array-buffer.h`), so the constant was made a documented,
+  conservative 16 bytes to match the platform allocator (see 3.9).
 - ~~`Instant::now() + timeout` (`monitor.rs:54`) panics on overflow for
   pathological durations.~~ Fixed 2026-10-15: `set_timeout` now uses
   `checked_add` and treats overflow as "never" (see 3.7).
@@ -422,16 +425,21 @@ Goal: a real, unbypassable ceiling for untrusted code.
 
 ### 3.9 [LOW] Fix timeout error classification and misc
 
-**Status: PARTIALLY DONE 2026-10-15.** The timeout classification and
-`Instant` overflow items were completed alongside 3.2/3.7; the alignment
-reconfirmation remains.
+**Status: DONE 2026-10-15.**
 
 - ~~Report timeouts distinctly and consistently; don't surface a cancelled
   isolate as `NonFatal` (2.9).~~ Done: both timeout paths now return a fatal
   `"javascript execution timed out"` (see 3.2 implementation notes).
 - ~~Guard `Instant::now() + timeout` against overflow (`monitor.rs:54`).~~
   Done: `set_timeout` uses `checked_add` with a "never" sentinel (see 3.7).
-- Reconfirm the allocator alignment constant (`alloc.rs:14`).
+- ~~Reconfirm the allocator alignment constant (`alloc.rs:14`).~~ Done:
+  verified that V8's `ArrayBuffer::Allocator` documents no alignment
+  requirement (vendored `v8-147.0.0/v8/include/v8-array-buffer.h`), and
+  changed `ALIGN` from 8 to a documented 16 to match the platform allocator
+  (`malloc`/`max_align_t`) that V8's default allocator uses. Added a
+  compile-time power-of-two assertion and the
+  `alloc::tests::allocator_returns_aligned_zeroed_pointers` test, which
+  asserts returned pointers are `ALIGN`-aligned and that `Allocate` zeroes.
 
 ## 4. How the empirical findings were produced
 
@@ -453,13 +461,12 @@ clean. To reproduce:
 ## 5. Suggested implementation order
 
 1. ~~3.1 (allocator budget)~~ — **done 2026-10-15**.
-2. ~~3.2 (await-time bounding)~~ — **done 2026-10-15** (plus the timeout
-   classification part of 3.9).
-3. ~~3.7 (lock-free monitor callback)~~ — **done 2026-10-15** (plus the
-   `Instant` overflow part of 3.9).
-4. 3.3 (global budget + thread cap).
-5. 3.4 (process isolation backstop).
-6. 3.5, 3.6, 3.8, and the remainder of 3.9 as follow-ups.
+2. ~~3.2 (await-time bounding)~~ — **done 2026-10-15**.
+3. ~~3.7 (lock-free monitor callback)~~ — **done 2026-10-15**.
+4. ~~3.9 (timeout classification + misc)~~ — **done 2026-10-15**.
+5. 3.3 (global budget + thread cap).
+6. 3.4 (process isolation backstop).
+7. 3.5, 3.6, and 3.8 as follow-ups.
 
 Add the regression tests from 3.1 and 3.2 alongside the fixes so the two
 CRITICAL gaps cannot silently reappear.
