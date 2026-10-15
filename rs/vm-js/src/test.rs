@@ -36,6 +36,13 @@ async fn sanity() {
 
 #[tokio::test]
 async fn btoa() {
+    deno_core::extension!(
+        vm_bootstrap,
+        deps = [ deno_webidl ],
+        esm_entry_point = "ext:vm_bootstrap/vm_bootstrap.js",
+        esm = [ "vm_bootstrap.js" ],
+    );
+
     let extension_cb: ExtensionCb = Arc::new(|| {
         vec![
             deno_webidl::deno_webidl::init(),
@@ -45,6 +52,7 @@ async fn btoa() {
                 true,
                 deno_web::InMemoryBroadcastChannel::default(),
             ),
+            vm_bootstrap::init(),
         ]
     });
 
