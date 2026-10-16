@@ -325,6 +325,9 @@ Tests to add:
 
 ### 3.3 [HIGH] Add a global budget and thread cap
 
+**Status: IMPLEMENTED 2026-10-15** (semaphore approach; worker pool
+deferred as out of scope).
+
 Goal: N clients cannot collectively exhaust the host, and the number of
 isolates is bounded.
 
@@ -343,6 +346,44 @@ Approach:
   teardown policy.
 - Expose the limits via config (as the old `js_global_set_max_thread` /
   `js_global_set_max_ram` did).
+
+**Implementation notes (2026-10-15):**
+
+- New `global.rs` defines `VmJsGlobal`, a budget holding two
+  `tokio::sync::Semaphore`s: one counting threads and one counting RAM in
+  MiB. RAM is accounted in whole MiB because `Semaphore` takes a `u32`
+  permit count (byte permits would overflow above 4 GiB). `VmJsGlobal::new`
+  and `VmJsGlobal::global()` (the process-wide, lazily-initialized default
+  of 32 threads / 768 MiB) construct one.
+- Process-wide setters `set_global_max_threads` / `set_global_max_ram_bytes`
+  are exposed at the crate root (the `OnceLock` equivalents of the old
+  `js_global_set_max_thread` / `js_global_set_max_ram`); they must be called
+  before the first `VmJs` is created.
+- `VmJsConfig` gained `global: Option<Arc<VmJsGlobal>>` (defaults to the
+  process-wide budget; an isolated budget can be injected for tests or
+  per-tenant pools) and `global_acquire_timeout` (default 30 s).
+- `VmJs::new` acquires a thread permit and a RAM permit (its `max_mem_bytes`
+  rounded up to MiB) before spawning the isolate thread, holds them in a
+  `GlobalPermits` field for the instance's lifetime, and releases them on
+  drop. Acquisition is bounded by `global_acquire_timeout`; a request larger
+  than the whole budget fails immediately with a fatal error rather than
+  waiting forever.
+- The two permits are acquired in a **fixed order** (thread, then RAM)
+  rather than via `try_join!`: with independent semaphores, two tasks each
+  grabbing one permit concurrently could deadlock (A holds thread/waits RAM,
+  B holds RAM/waits thread). Fixed ordering makes a cycle impossible.
+- Known limitation (see 3.6): `Drop` cancels but does not join the isolate
+  thread, so a permit is released slightly before the OS thread actually
+  exits; the cap can be transiently exceeded during teardown. Joining on
+  drop remains the durable fix.
+- Tests added: `global::tests::{acquire_enforces_thread_limit,
+  acquire_enforces_ram_limit, acquire_rejects_oversized_request,
+  acquire_rounds_up_to_mib, permits_release_on_drop}` (injected budgets);
+  `test::{global_budget_thread_cap, global_budget_ram_cap,
+  global_budget_oversized_request}` (wiring via `VmJs::new`); and the
+  integration test `tests/global_budget.rs::process_global_thread_cap`
+  (own process, so it can safely exercise the process-global setters).
+  All 28 unit tests and the integration test pass.
 
 ### 3.4 [HIGH] Add a hard backstop via process isolation
 
@@ -464,7 +505,7 @@ clean. To reproduce:
 2. ~~3.2 (await-time bounding)~~ — **done 2026-10-15**.
 3. ~~3.7 (lock-free monitor callback)~~ — **done 2026-10-15**.
 4. ~~3.9 (timeout classification + misc)~~ — **done 2026-10-15**.
-5. 3.3 (global budget + thread cap).
+5. ~~3.3 (global budget + thread cap)~~ — **done 2026-10-15**.
 6. 3.4 (process isolation backstop).
 7. 3.5, 3.6, and 3.8 as follow-ups.
 

@@ -525,6 +525,79 @@ async fn js_mem_quota() {
     assert!(res.to_string().contains("terminated"), "{res:?}");
 }
 
+/// An injected global budget must cap the number of live instances. With a
+/// one-thread budget, a second `VmJs` cannot be created until the first is
+/// dropped.
+#[tokio::test]
+async fn global_budget_thread_cap() {
+    let budget = VmJsGlobal::new(1, 64 * 1024 * 1024);
+
+    let mk = || VmJsConfig {
+        code: "function bob(a) { return a + 1; }".into(),
+        max_mem_bytes: 16 * 1024 * 1024,
+        global: Some(budget.clone()),
+        global_acquire_timeout: std::time::Duration::from_millis(100),
+        ..Default::default()
+    };
+
+    let a: VmJs<usize, usize> = VmJs::new(mk()).await.unwrap();
+
+    // the single thread permit is held; this must time out
+    let err = VmJs::<usize, usize>::new(mk()).await.err().unwrap();
+    assert!(err.to_string().contains("timed out"), "{err:?}");
+
+    // dropping the first releases the permit
+    drop(a);
+    let b: VmJs<usize, usize> = VmJs::new(mk()).await.unwrap();
+    b.blocking_shutdown();
+}
+
+/// An injected global RAM budget must cap total per-instance quotas, even
+/// when thread slots remain.
+#[tokio::test]
+async fn global_budget_ram_cap() {
+    // 24 MiB of RAM, plenty of threads
+    let budget = VmJsGlobal::new(10, 24 * 1024 * 1024);
+
+    let mk = || VmJsConfig {
+        code: "function bob(a) { return a + 1; }".into(),
+        max_mem_bytes: 16 * 1024 * 1024,
+        global: Some(budget.clone()),
+        global_acquire_timeout: std::time::Duration::from_millis(100),
+        ..Default::default()
+    };
+
+    let a: VmJs<usize, usize> = VmJs::new(mk()).await.unwrap();
+
+    // only 8 MiB left, so a second 16 MiB instance cannot be created
+    let err = VmJs::<usize, usize>::new(mk()).await.err().unwrap();
+    assert!(err.to_string().contains("timed out"), "{err:?}");
+
+    drop(a);
+    let b: VmJs<usize, usize> = VmJs::new(mk()).await.unwrap();
+    b.blocking_shutdown();
+}
+
+/// A per-instance quota larger than the whole budget fails fast instead of
+/// waiting for permits that can never be satisfied.
+#[tokio::test]
+async fn global_budget_oversized_request() {
+    let budget = VmJsGlobal::new(10, 4 * 1024 * 1024);
+
+    let err = VmJs::<usize, usize>::new(VmJsConfig {
+        code: "function bob(a) { return a + 1; }".into(),
+        max_mem_bytes: 16 * 1024 * 1024,
+        global: Some(budget),
+        global_acquire_timeout: std::time::Duration::from_millis(100),
+        ..Default::default()
+    })
+    .await
+    .err()
+    .unwrap();
+
+    assert!(err.to_string().contains("exceeds"), "{err:?}");
+}
+
 #[tokio::test]
 async fn extension_sanity() {
     #[deno_core::op2]

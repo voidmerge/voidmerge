@@ -5,8 +5,13 @@ pub use deno_core;
 use std::sync::Arc;
 
 mod alloc;
+mod global;
 mod js_thread;
 mod monitor;
+
+pub use global::{
+    GlobalPermits, VmJsGlobal, set_global_max_ram_bytes, set_global_max_threads,
+};
 
 /// Factory function for initializing an array of default deno extensions.
 #[cfg(feature = "default_extensions")]
@@ -128,6 +133,21 @@ pub struct VmJsConfig {
 
     /// Callback for creating deno_core extensions.
     pub extension_cb: ExtensionCb,
+
+    /// The global resource budget to charge this instance against.
+    ///
+    /// `None` (the default) uses the process-wide budget
+    /// ([VmJsGlobal::global]), configured via [set_global_max_threads] and
+    /// [set_global_max_ram_bytes]. Set this to an isolated budget to give a
+    /// group of instances their own thread/RAM cap (useful for tests or
+    /// per-tenant pools).
+    pub global: Option<Arc<VmJsGlobal>>,
+
+    /// How long to wait for global thread/RAM permits when creating an
+    /// instance. On expiry, [VmJs::new] returns a fatal error.
+    ///
+    /// Default: 30 seconds.
+    pub global_acquire_timeout: std::time::Duration,
 }
 
 impl Default for VmJsConfig {
@@ -136,6 +156,8 @@ impl Default for VmJsConfig {
             code: "".into(),
             max_mem_bytes: 1024 * 1024 * 32,
             extension_cb: Arc::new(Vec::default),
+            global: None,
+            global_acquire_timeout: std::time::Duration::from_secs(30),
         }
     }
 }
@@ -149,6 +171,9 @@ where
     cancel: tokio_util::sync::CancellationToken,
     thread: Option<std::thread::JoinHandle<()>>,
     call_send: tokio::sync::mpsc::Sender<js_thread::Call<Input, Output>>,
+    /// Global thread/RAM permits held for this instance's lifetime.
+    /// Dropping the `VmJs` releases them back to the budget.
+    _permits: GlobalPermits,
 }
 
 impl<Input, Output> Drop for VmJs<Input, Output>
@@ -173,6 +198,13 @@ where
 {
     /// Construct a new [VmJs] instance.
     pub async fn new(config: VmJsConfig) -> JsResult<Self> {
+        // Reserve our share of the global thread/RAM budget before we spawn
+        // anything. The permits are held for the lifetime of this instance.
+        let global = config.global.clone().unwrap_or_else(VmJsGlobal::global);
+        let permits = global
+            .acquire(config.max_mem_bytes, config.global_acquire_timeout)
+            .await?;
+
         let cancel = tokio_util::sync::CancellationToken::new();
         let (call_send, call_recv) = tokio::sync::mpsc::channel(32);
         let cancel2 = cancel.clone();
@@ -191,6 +223,7 @@ where
             cancel,
             thread: Some(thread),
             call_send,
+            _permits: permits,
         })
     }
 
