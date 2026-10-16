@@ -35,26 +35,7 @@ async fn sanity() {
 }
 
 fn ext_cb() -> ExtensionCb {
-    deno_core::extension!(
-        vm_bootstrap,
-        deps = [deno_webidl, deno_web, deno_crypto],
-        esm_entry_point = "ext:vm_bootstrap/vm_bootstrap.js",
-        esm = ["vm_bootstrap.js"],
-    );
-
-    Arc::new(|| {
-        vec![
-            deno_webidl::deno_webidl::init(),
-            deno_web::deno_web::init(
-                Arc::new(deno_web::BlobStore::default()),
-                None,
-                true,
-                deno_web::InMemoryBroadcastChannel::default(),
-            ),
-            deno_crypto::deno_crypto::init(None),
-            vm_bootstrap::init(),
-        ]
-    })
+    Arc::new(|| default_extensions::default_extensions())
 }
 
 async fn exec_ext_test(code: &str) {

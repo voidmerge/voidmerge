@@ -8,6 +8,31 @@ mod alloc;
 mod js_thread;
 mod monitor;
 
+/// Factory function for initializing an array of default deno extensions.
+#[cfg(feature = "default_extensions")]
+pub mod default_extensions {
+    deno_core::extension!(
+        vm_bootstrap,
+        deps = [deno_webidl, deno_web, deno_crypto],
+        esm_entry_point = "ext:vm_bootstrap/vm_bootstrap.js",
+        esm = ["vm_bootstrap.js"],
+    );
+
+    pub fn default_extensions() -> Vec<deno_core::Extension> {
+        vec![
+            deno_webidl::deno_webidl::init(),
+            deno_web::deno_web::init(
+                std::sync::Arc::new(deno_web::BlobStore::default()),
+                None,
+                true,
+                deno_web::InMemoryBroadcastChannel::default(),
+            ),
+            deno_crypto::deno_crypto::init(None),
+            vm_bootstrap::init(),
+        ]
+    }
+}
+
 #[cfg(test)]
 mod test;
 
