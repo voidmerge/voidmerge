@@ -11,14 +11,48 @@ mod monitor;
 /// Factory function for initializing an array of default deno extensions.
 #[cfg(feature = "default_extensions")]
 pub mod default_extensions {
+    use deno_core::OpState;
+    use std::sync::Arc;
+
+    /// Callback for forwarding `console.*` output.
+    ///
+    /// The first argument is the log "level" (the lowercase name of the
+    /// invoked `console` method, e.g. `"log"` or `"error"`), and the second
+    /// is the joined string representation of the arguments.
+    pub type LogFn = Arc<dyn Fn(String, String) + 'static + Send + Sync>;
+
+    /// OpState slot holding the [LogFn] used by [op_log].
+    struct LogFnState(LogFn);
+
+    /// Forward a `console.*` call to the configured [LogFn].
+    #[deno_core::op2(fast)]
+    fn op_log(
+        state: &mut OpState,
+        #[string] level: String,
+        #[string] message: String,
+    ) {
+        // clone the Arc out so we don't hold the OpState borrow while
+        // invoking the user-supplied callback
+        let log = state.borrow::<LogFnState>().0.clone();
+        log(level, message);
+    }
+
     deno_core::extension!(
         vm_bootstrap,
         deps = [deno_webidl, deno_web, deno_crypto],
+        ops = [op_log],
         esm_entry_point = "ext:vm_bootstrap/vm_bootstrap.js",
         esm = ["vm_bootstrap.js"],
+        options = { log_fn: Option<LogFn> },
+        state = |state, options| {
+            let log = options.log_fn.unwrap_or_else(|| Arc::new(|_, _| {}));
+            state.put(LogFnState(log));
+        },
     );
 
-    pub fn default_extensions() -> Vec<deno_core::Extension> {
+    pub fn default_extensions(
+        log_fn: Option<Arc<dyn Fn(String, String) + 'static + Send + Sync>>,
+    ) -> Vec<deno_core::Extension> {
         vec![
             deno_webidl::deno_webidl::init(),
             deno_web::deno_web::init(
@@ -28,7 +62,7 @@ pub mod default_extensions {
                 deno_web::InMemoryBroadcastChannel::default(),
             ),
             deno_crypto::deno_crypto::init(None),
-            vm_bootstrap::init(),
+            vm_bootstrap::init(log_fn),
         ]
     }
 }

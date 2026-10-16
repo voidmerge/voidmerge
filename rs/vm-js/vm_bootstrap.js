@@ -13,7 +13,6 @@ const url = core.loadExtScript("ext:deno_web/00_url.js");
 const broadcastChannel = core.loadExtScript(
   "ext:deno_web/01_broadcast_channel.js",
 );
-const console = core.loadExtScript("ext:deno_web/01_console.js");
 const DOMException = core.loadExtScript("ext:deno_web/01_dom_exception.js");
 const mimesniff = core.loadExtScript("ext:deno_web/01_mimesniff.js");
 const urlPattern = core.loadExtScript("ext:deno_web/01_urlpattern.js");
@@ -90,7 +89,6 @@ const WEB_LOAD = [
   ["btoa", base64.btoa, true, true, true],
   ["clearInterval", timers.clearInterval, true, true, true],
   ["clearTimeout", timers.clearTimeout, true, true, true],
-  //["console", new console.Console(printer), false, true, true],
   ["performance", performance.performance, true, true, true],
   ["reportError", event.reportError, true, true, true],
   ["setInterval", timers.setInterval, true, true, true],
@@ -106,6 +104,27 @@ for (const [key, value, enumerable, configurable, writable] of WEB_LOAD) {
     writable,
   });
 }
+
+// Minimal console implementation. Each method forwards the lowercase method
+// name as the "level" and the space-joined `toString()` of its arguments to
+// the `op_log` op, which invokes the embedder-supplied log callback.
+const consoleObj = { __proto__: null };
+for (const level of ["debug", "log", "info", "warn", "error", "trace"]) {
+  Object.defineProperty(consoleObj, level, {
+    value: (...args) => {
+      core.ops.op_log(level, args.map((arg) => arg.toString()).join(" "));
+    },
+    enumerable: true,
+    configurable: true,
+    writable: true,
+  });
+}
+Object.defineProperty(globalThis, "console", {
+  value: consoleObj,
+  enumerable: false,
+  configurable: true,
+  writable: true,
+});
 
 const crypto = core.loadExtScript("ext:deno_crypto/00_crypto.js");
 

@@ -35,7 +35,7 @@ async fn sanity() {
 }
 
 fn ext_cb() -> ExtensionCb {
-    Arc::new(|| default_extensions::default_extensions())
+    Arc::new(|| default_extensions::default_extensions(None))
 }
 
 async fn exec_ext_test(code: &str) {
@@ -237,6 +237,57 @@ if (aesPlainStr !== 'hello world') {
         }"#,
     )
     .await;
+}
+
+#[tokio::test]
+async fn ext_console() {
+    let logs: Arc<std::sync::Mutex<Vec<(String, String)>>> =
+        Arc::new(std::sync::Mutex::new(Vec::new()));
+    let logs2 = logs.clone();
+
+    let j: VmJs<(), ()> = VmJs::new(VmJsConfig {
+        code: r#"function test() {
+            console.log("hello", 42, true);
+            console.debug("dbg");
+            console.info("inf");
+            console.warn("wrn");
+            console.error("err");
+            console.trace("trc");
+            console.log({ a: 1 }, [1, 2]);
+        }"#
+        .into(),
+        extension_cb: Arc::new(move || {
+            let logs2 = logs2.clone();
+            default_extensions::default_extensions(Some(Arc::new(
+                move |level, message| {
+                    logs2.lock().unwrap().push((level, message));
+                },
+            )))
+        }),
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+
+    j.call("test", (), std::time::Duration::from_secs(10))
+        .await
+        .unwrap();
+
+    j.blocking_shutdown();
+
+    let logs = logs.lock().unwrap();
+    assert_eq!(
+        *logs,
+        vec![
+            ("log".to_string(), "hello 42 true".to_string()),
+            ("debug".to_string(), "dbg".to_string()),
+            ("info".to_string(), "inf".to_string()),
+            ("warn".to_string(), "wrn".to_string()),
+            ("error".to_string(), "err".to_string()),
+            ("trace".to_string(), "trc".to_string()),
+            ("log".to_string(), "[object Object] 1,2".to_string()),
+        ]
+    );
 }
 
 #[tokio::test]
