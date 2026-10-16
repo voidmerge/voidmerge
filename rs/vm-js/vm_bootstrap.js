@@ -13,7 +13,6 @@ const url = core.loadExtScript("ext:deno_web/00_url.js");
 const broadcastChannel = core.loadExtScript(
   "ext:deno_web/01_broadcast_channel.js",
 );
-const console = core.loadExtScript("ext:deno_web/01_console.js");
 const DOMException = core.loadExtScript("ext:deno_web/01_dom_exception.js");
 const mimesniff = core.loadExtScript("ext:deno_web/01_mimesniff.js");
 const urlPattern = core.loadExtScript("ext:deno_web/01_urlpattern.js");
@@ -46,10 +45,10 @@ const WEB_LOAD = [
   ["AbortSignal", abortSignal.AbortSignal, false, true, true],
   ["Blob", file.Blob, false, true, true],
   ["BroadcastChannel", broadcastChannel.BroadcastChannel, false, true, true],
-  //["ByteLengthQueuingStrategy, streams.ByteLengthQueuingStrategy, 		
+  ["ByteLengthQueuingStrategy", streams.ByteLengthQueuingStrategy, false, true, true],
   ["CloseEvent", event.CloseEvent, false, true, true],
   ["CompressionStream", compression.CompressionStream, false, true, true],
-  //["CountQueuingStrategy, streams.CountQueuingStrategy, 		
+  ["CountQueuingStrategy", streams.CountQueuingStrategy, false, true, true],
   ["CustomEvent", event.CustomEvent, false, true, true],
   ["DecompressionStream", compression.DecompressionStream, false, true, true],
   ["DOMException", DOMException, false, true, true],
@@ -66,7 +65,7 @@ const WEB_LOAD = [
   ["PromiseRejectionEvent", event.PromiseRejectionEvent, false, true, true],
   ["ProgressEvent", event.ProgressEvent, false, true, true],
   ["ReadableStream", streams.ReadableStream, false, true, true],
-  //["ReadableStreamDefaultReader, streams.ReadableStreamDefaultReader, 		
+  ["ReadableStreamDefaultReader", streams.ReadableStreamDefaultReader, false, true, true],
   ["TextDecoder", encoding.TextDecoder, false, true, true],
   ["TextEncoder", encoding.TextEncoder, false, true, true],
   ["TextDecoderStream", encoding.TextDecoderStream, false, true, true],
@@ -78,19 +77,18 @@ const WEB_LOAD = [
   ["MessageChannel", messagePort.MessageChannel, false, true, true],
   ["MessagePort", messagePort.MessagePort, false, true, true],
   ["WritableStream", streams.WritableStream, false, true, true],
-  //["WritableStreamDefaultWriter, streams.WritableStreamDefaultWriter, 		
-  //["WritableStreamDefaultController, streams.WritableStreamDefaultController, 		
-  //["ReadableByteStreamController, streams.ReadableByteStreamController, 		
-  //["ReadableStreamBYOBReader, streams.ReadableStreamBYOBReader, 		
-  //["ReadableStreamBYOBRequest, streams.ReadableStreamBYOBRequest, 		
-  //["ReadableStreamDefaultController, streams.ReadableStreamDefaultController, 		
-  //["TransformStreamDefaultController, streams.TransformStreamDefaultController, 		
+  ["WritableStreamDefaultWriter", streams.WritableStreamDefaultWriter, false, true, true],
+  ["WritableStreamDefaultController", streams.WritableStreamDefaultController, false, true, true],
+  ["ReadableByteStreamController", streams.ReadableByteStreamController, false, true, true],
+  ["ReadableStreamBYOBReader", streams.ReadableStreamBYOBReader, false, true, true],
+  ["ReadableStreamBYOBRequest", streams.ReadableStreamBYOBRequest, false, true, true],
+  ["ReadableStreamDefaultController", streams.ReadableStreamDefaultController, false, true, true],
+  ["TransformStreamDefaultController", streams.TransformStreamDefaultController, false, true, true],
   ["ImageData", imageData.ImageData, false, true, true],
   ["atob", base64.atob, true, true, true],
   ["btoa", base64.btoa, true, true, true],
   ["clearInterval", timers.clearInterval, true, true, true],
   ["clearTimeout", timers.clearTimeout, true, true, true],
-  //["console", new console.Console(printer), false, true, true],
   ["performance", performance.performance, true, true, true],
   ["reportError", event.reportError, true, true, true],
   ["setInterval", timers.setInterval, true, true, true],
@@ -106,6 +104,27 @@ for (const [key, value, enumerable, configurable, writable] of WEB_LOAD) {
     writable,
   });
 }
+
+// Minimal console implementation. Each method forwards the lowercase method
+// name as the "level" and the space-joined `toString()` of its arguments to
+// the `op_log` op, which invokes the embedder-supplied log callback.
+const consoleObj = { __proto__: null };
+for (const level of ["debug", "log", "info", "warn", "error", "trace"]) {
+  Object.defineProperty(consoleObj, level, {
+    value: (...args) => {
+      core.ops.op_log(level, args.map((arg) => arg.toString()).join(" "));
+    },
+    enumerable: true,
+    configurable: true,
+    writable: true,
+  });
+}
+Object.defineProperty(globalThis, "console", {
+  value: consoleObj,
+  enumerable: false,
+  configurable: true,
+  writable: true,
+});
 
 const crypto = core.loadExtScript("ext:deno_crypto/00_crypto.js");
 
