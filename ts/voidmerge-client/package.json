@@ -1,8 +1,11 @@
 {
   "name": "@voidmerge/voidmerge-client",
-  "version": "0.0.26",
+  "version": "0.0.27",
   "description": "VoidMerge: The open-source, developer friendly web services platform.",
   "license": "(MIT or Apache-2.0)",
+  "engines": {
+    "node": ">=18"
+  },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "type": "module",
@@ -13,7 +16,6 @@
     "test": "npm test --include-workspace-root -w"
   },
   "dependencies": {
-    "cross-fetch": "^4.1.0",
     "msgpackr": "^1.11.5"
   }
 }

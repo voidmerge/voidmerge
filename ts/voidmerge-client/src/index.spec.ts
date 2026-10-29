@@ -1,3 +1,10 @@
+import {
+  createServer,
+  type IncomingMessage,
+  type Server,
+  type ServerResponse,
+} from "node:http";
+import type { AddressInfo } from "node:net";
 import { VmNodeTestServer } from "./vm-node-test-server.js";
 import * as VM from "./index.js";
 
@@ -131,4 +138,69 @@ describe("voidmerge-client", () => {
     },
     TIMEOUT,
   );
+});
+
+describe("voidmerge-client connection handling", () => {
+  let server: null | Server = null;
+  let url = "";
+
+  const listen = async (
+    handler: (req: IncomingMessage, res: ServerResponse) => void,
+  ) => {
+    server = createServer(handler);
+    await new Promise<void>((res) =>
+      server?.listen(0, "127.0.0.1", () => res()),
+    );
+    const addr = server.address() as AddressInfo;
+    url = `http://127.0.0.1:${addr.port}`;
+  };
+
+  const close = async () => {
+    if (!server) {
+      return;
+    }
+    const s = server;
+    server = null;
+    await new Promise<void>((res) => {
+      s.close(() => res());
+      s.closeAllConnections();
+    });
+  };
+
+  afterEach(async () => {
+    await close();
+  });
+
+  it("times out on an unresponsive server", async () => {
+    await listen(() => {
+      // intentionally never respond
+    });
+
+    await expect(VM.health(url, { timeoutMs: 200 })).rejects.toBeDefined();
+  });
+
+  it("sends Connection: close when requested", async () => {
+    let seen: string | undefined = undefined;
+    await listen((req, res) => {
+      seen = req.headers.connection;
+      res.writeHead(200).end();
+    });
+
+    await VM.health(url, { connectionClose: true });
+
+    expect(seen).toEqual("close");
+  });
+
+  it("recovers after the server closes an idle keep-alive connection", async () => {
+    await listen((_req, res) => {
+      res.writeHead(200).end();
+      // drop the connection shortly after responding, simulating a server
+      // closing an idle keep-alive socket
+      setTimeout(() => res.socket?.destroy(), 50);
+    });
+
+    await VM.health(url);
+    await new Promise((res) => setTimeout(res, 150));
+    await VM.health(url);
+  });
 });
