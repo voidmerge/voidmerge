@@ -1,6 +1,54 @@
-import fetch from "cross-fetch";
 import { unpack } from "msgpackr/unpack";
 //import { pack } from "msgpackr/pack";
+
+/**
+ * Default per-request timeout in milliseconds.
+ */
+const DEFAULT_TIMEOUT_MS = 30000;
+
+/**
+ * Optional per-request tuning shared by the client API calls.
+ */
+export interface RequestOptions {
+  /**
+   * Per-request timeout in milliseconds. Defaults to 30000.
+   * A timeout aborts the request rather than hanging indefinitely.
+   */
+  timeoutMs?: number;
+
+  /**
+   * When true, send a `Connection: close` header so the connection is not
+   * reused from a pool. This is a safeguard against stale keep-alive
+   * connections on Node (browsers ignore this header and manage their own
+   * connection pooling). Defaults to false.
+   */
+  connectionClose?: boolean;
+}
+
+/**
+ * Fetch with a bounded per-request timeout. Uses `AbortSignal.timeout` when
+ * available and falls back to an `AbortController` + timer otherwise.
+ */
+async function fetchWithTimeout(
+  url: URL | string,
+  opts: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
+  if (typeof AbortSignal !== "undefined" && "timeout" in AbortSignal) {
+    return await fetch(url, {
+      ...opts,
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...opts, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 async function handle(res: Response): Promise<Uint8Array> {
   if (res.status >= 400) {
@@ -15,6 +63,7 @@ async function get(
   path: string,
   query?: { [k: string]: string },
   token?: string,
+  opts?: RequestOptions,
 ): Promise<Uint8Array> {
   const getUrl = new URL(url);
   getUrl.pathname = path;
@@ -23,13 +72,20 @@ async function get(
       getUrl.searchParams.set(k, query[k]);
     }
   }
-  const opts: RequestInit = {};
+  const headers: { [k: string]: string } = {};
   if (token) {
-    opts.headers = {
-      Authorization: `Bearer ${token}`,
-    };
+    headers.Authorization = `Bearer ${token}`;
   }
-  return await handle(await fetch(getUrl, opts));
+  if (opts?.connectionClose) {
+    headers.Connection = "close";
+  }
+  const init: RequestInit = {};
+  if (Object.keys(headers).length > 0) {
+    init.headers = headers;
+  }
+  return await handle(
+    await fetchWithTimeout(getUrl, init, opts?.timeoutMs ?? DEFAULT_TIMEOUT_MS),
+  );
 }
 
 async function put(
@@ -37,19 +93,29 @@ async function put(
   path: string,
   token: string,
   body: Uint8Array,
+  opts?: RequestOptions,
 ): Promise<Uint8Array> {
   const putUrl = new URL(url);
   putUrl.pathname = path;
 
   const buf = body.slice(0, body.byteLength);
 
-  const res = await fetch(putUrl, {
-    body: buf,
-    headers: {
-      Authorization: `Bearer ${token}`,
+  const headers: { [k: string]: string } = {
+    Authorization: `Bearer ${token}`,
+  };
+  if (opts?.connectionClose) {
+    headers.Connection = "close";
+  }
+
+  const res = await fetchWithTimeout(
+    putUrl,
+    {
+      body: buf,
+      headers,
+      method: "PUT",
     },
-    method: "PUT",
-  });
+    opts?.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+  );
 
   return await handle(res);
 }
@@ -57,25 +123,35 @@ async function put(
 /**
  * Execute a simple health check on a VoidMerge server.
  */
-export async function health(url: URL | string) {
-  await get(url, "");
+export async function health(url: URL | string, opts?: RequestOptions) {
+  await get(url, "", undefined, undefined, opts);
 }
 
 /**
  * Execute a "RequestFn" call on a VoidMerge server.
  */
-export async function fnCall(input: {
-  url: URL | string;
-  ctx: string;
-  path: string;
-  headers?: { [k: string]: string };
-  body?: Uint8Array;
-}): Promise<{
+export async function fnCall(
+  input: {
+    url: URL | string;
+    ctx: string;
+    path: string;
+    headers?: { [k: string]: string };
+    body?: Uint8Array;
+  } & RequestOptions,
+): Promise<{
   status: number;
   body: Uint8Array;
   headers: { [k: string]: string };
 }> {
-  const { url, ctx, path, headers, body } = input;
+  const {
+    url,
+    ctx,
+    path,
+    headers,
+    body,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+    connectionClose = false,
+  } = input;
 
   const fnUrl = new URL(url);
   fnUrl.pathname = `${ctx}/${path}`;
@@ -89,11 +165,15 @@ export async function fnCall(input: {
     opts.body = body.slice().buffer;
   }
 
-  if (headers) {
-    opts.headers = headers;
+  const outHeaders: { [k: string]: string } = { ...headers };
+  if (connectionClose) {
+    outHeaders.Connection = "close";
+  }
+  if (Object.keys(outHeaders).length > 0) {
+    opts.headers = outHeaders;
   }
 
-  const res = await fetch(fnUrl, opts);
+  const res = await fetchWithTimeout(fnUrl, opts, timeoutMs);
 
   if (res.status >= 400) {
     const msg = await res.text();
@@ -238,20 +318,28 @@ export class MsgListener {
 /**
  * Put an object into a VoidMerge server context store.
  */
-export async function objPut(input: {
-  url: URL | string;
-  token: string;
-  ctx: string;
-  appPath: string;
-  createdSecs?: string | number;
-  expiresSecs?: string | number;
-  data: Uint8Array;
-}): Promise<{ meta: string }> {
+export async function objPut(
+  input: {
+    url: URL | string;
+    token: string;
+    ctx: string;
+    appPath: string;
+    createdSecs?: string | number;
+    expiresSecs?: string | number;
+    data: Uint8Array;
+  } & RequestOptions,
+): Promise<{ meta: string }> {
   const { url, token, ctx, appPath, createdSecs, expiresSecs, data } = input;
   const cs = createdSecs ? createdSecs.toString() : "0";
   const es = expiresSecs ? expiresSecs.toString() : "0";
   const meta = new TextDecoder().decode(
-    await put(url, `${ctx}/_vm_/obj-put/${appPath}/${cs}/${es}`, token, data),
+    await put(
+      url,
+      `${ctx}/_vm_/obj-put/${appPath}/${cs}/${es}`,
+      token,
+      data,
+      input,
+    ),
   );
   return { meta };
 }
@@ -259,14 +347,16 @@ export async function objPut(input: {
 /**
  * List object metadata in a VoidMerge server context store.
  */
-export async function objList(input: {
-  url: URL | string;
-  token: string;
-  ctx: string;
-  appPathPrefix: string;
-  createdGt?: string | number;
-  limit?: string | number;
-}): Promise<{ metaList: string[] }> {
+export async function objList(
+  input: {
+    url: URL | string;
+    token: string;
+    ctx: string;
+    appPathPrefix: string;
+    createdGt?: string | number;
+    limit?: string | number;
+  } & RequestOptions,
+): Promise<{ metaList: string[] }> {
   const { url, token, ctx, appPathPrefix, createdGt, limit } = input;
   const c = createdGt ? createdGt.toString() : "0";
   const l = limit ? limit.toString() : "1000";
@@ -278,6 +368,7 @@ export async function objList(input: {
       limit: l,
     },
     token,
+    input,
   );
   const raw = unpack(res);
   if (!raw || typeof raw !== "object" || !Array.isArray(raw.metaList)) {
@@ -294,18 +385,21 @@ export async function objList(input: {
 /**
  * Get object data from a VoidMerge server context store.
  */
-export async function objGet(input: {
-  url: URL | string;
-  token: string;
-  ctx: string;
-  appPath: string;
-}): Promise<{ meta: string; data: Uint8Array }> {
+export async function objGet(
+  input: {
+    url: URL | string;
+    token: string;
+    ctx: string;
+    appPath: string;
+  } & RequestOptions,
+): Promise<{ meta: string; data: Uint8Array }> {
   const { url, token, ctx, appPath } = input;
   const res = await get(
     url,
     `${ctx}/_vm_/obj-get/${appPath}`,
     undefined,
     token,
+    input,
   );
   const raw = unpack(res);
   if (
